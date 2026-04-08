@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
 
-RUN npm ci --ignore-scripts
+RUN npm ci --ignore-scripts && npx prisma generate
 
 # ── Stage 2: builder ─────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS builder
@@ -14,8 +14,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Gera Prisma client e faz build Next.js
-RUN npx prisma generate
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ── Stage 3: runner ──────────────────────────────────────────────────────────
@@ -25,11 +24,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Playwright dependencies (Chromium headless)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium \
+# Dependências mínimas do Chromium (Playwright vai instalar o próprio binário)
+RUN apt-get update -q && apt-get install -y --no-install-recommends \
     ca-certificates \
-    fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
@@ -46,25 +43,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxkbcommon0 \
     libxrandr2 \
     xdg-utils \
+    wget \
     && rm -rf /var/lib/apt/lists/*
-
-# Playwright usa o Chromium do sistema em vez de baixar o próprio
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Usuário não-root
 RUN groupadd --system --gid 1001 nodejs \
- && useradd --system --uid 1001 --gid nodejs nextjs
+ && useradd --system --uid 1001 --gid nodejs --create-home nextjs
+
+# Instala Chromium do Playwright (controlado, versão compatível)
+COPY --from=deps /app/node_modules ./node_modules
+RUN npx playwright install chromium --with-deps 2>/dev/null || npx playwright install chromium
 
 # Copia artefatos do build
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/src ./src
+COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 
-# Diretório de armazenamento de documentos
+# Move node_modules para o usuário correto
+RUN chown -R nextjs:nodejs /app/node_modules /root/.cache 2>/dev/null || true
+
+# Diretório de armazenamento
 RUN mkdir -p /app/storage/archive && chown -R nextjs:nodejs /app/storage
 
 USER nextjs
