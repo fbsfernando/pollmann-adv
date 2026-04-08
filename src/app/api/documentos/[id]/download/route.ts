@@ -1,17 +1,14 @@
 import { NextResponse } from 'next/server'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import dotenv from 'dotenv'
 
 import { requireAuth } from '@/lib/auth/guards'
 import { prisma } from '@/lib/db'
 import { downloadEprocDocument } from '@/lib/scraper/eproc-playwright'
 import { archiveDocument } from '@/lib/storage/document-archive'
 
-const env = dotenv.config({ path: '.env.local' }).parsed ?? {}
-
 const getEnv = (key: string): string => {
-  const value = env[key] ?? process.env[key]
+  const value = process.env[key]
   if (!value) throw new Error(`Variável de ambiente ausente: ${key}`)
   return value
 }
