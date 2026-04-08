@@ -17,3 +17,6 @@ storage/
 # misc
 *.log
 .DS_Store
+tmp/
+tsconfig.tsbuildinfo
+prisma/migrations/
