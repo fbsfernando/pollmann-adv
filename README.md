@@ -1,36 +1,106 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Juridico ADV — Runbook local (S02)
 
-## Getting Started
+Este projeto usa Next.js + Prisma + PostgreSQL local via Docker.
 
-First, run the development server:
+## Pré-requisitos
+
+- Node.js 20+
+- npm 10+
+- Docker Desktop (ou engine compatível com `docker compose`)
+
+## 1) Subir banco local
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd app
+docker compose up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Verificação rápida do container:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+docker compose ps
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Se houver erro de inicialização do banco:
 
-## Learn More
+```bash
+docker compose logs db --tail=100
+docker compose down -v
+docker compose up -d
+```
 
-To learn more about Next.js, take a look at the following resources:
+## 2) Aplicar schema e popular dados
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+cd app
+npx prisma migrate dev
+npx prisma db seed
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Se timeout/falha por indisponibilidade do banco, aguarde health e repita os comandos.
 
-## Deploy on Vercel
+## 3) Rodar app
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+cd app
+npm run dev
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+A aplicação sobe em `http://localhost:3000`.
+
+## 4) Credenciais de seed
+
+- Gestão: `richard@juridicoadv.com.br / admin123`
+- Advogado: `carlos@juridicoadv.com.br / adv123`
+- Advogada: `ana@juridicoadv.com.br / adv123`
+
+## 5) Verificação do slice S02
+
+### Fluxo completo de validação
+
+```bash
+cd app && docker compose up -d && npx prisma migrate dev && npx prisma db seed && npm run test -- --runInBand dashboard processos && npm run build
+```
+
+### Checagens adicionais de qualidade
+
+```bash
+cd app && npm run test -- --runInBand auth processos
+cd app && npm run lint
+```
+
+## 6) Diagnóstico por etapa (observabilidade operacional)
+
+- **DB**: `docker compose ps`, `docker compose logs db --tail=100`
+- **Schema/seed**: saídas de `npx prisma migrate dev` e `npx prisma db seed`
+- **Fluxos de negócio**: `npm run test -- --runInBand dashboard processos`
+- **Build/runtime**: `npm run build`
+
+Quando algo falhar, registre o comando e a etapa (`db`, `migrate`, `seed`, `test`, `build`) para facilitar recuperação.
+
+## 7) Pipeline operacional (S03)
+
+### Variáveis mínimas
+
+- `DATABASE_URL`: conexão PostgreSQL
+- `PIPELINE_ARCHIVE_DIR` (opcional): diretório base para arquivamento; default `./storage/archive`
+
+### Executar job
+
+```bash
+cd app
+npm run pipeline:sync
+```
+
+Saída esperada: log `[pipeline:sync] completed` com `runId`, `phase` (contadores por etapa) e timestamp.
+
+### Diagnóstico rápido
+
+```bash
+cd app
+npm run test -- --runInBand src/tests/pipeline/pipeline-integration.test.ts
+npm run pipeline:sync
+npm run lint
+```
+
+No caso de falha parcial, o run reporta `archiveFailures` e/ou `notificationFailures` sem desfazer `persistedAndamentos` e `persistedDocumentos`.

@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: juridico-adv-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: juridico
+      POSTGRES_PASSWORD: juridico_dev_2026
+      POSTGRES_DB: juridico_adv
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
