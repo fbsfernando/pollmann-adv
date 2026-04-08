@@ -1,43 +1,39 @@
-# ── Stage 1: deps + build ────────────────────────────────────────────────────
-# Usa imagem Playwright que já tem Chromium e todas as dependências nativas
-FROM mcr.microsoft.com/playwright:v1.49.0-noble AS builder
+# ── Stage 1: deps ────────────────────────────────────────────────────────────
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
-
-# Instala Node.js 22 (imagem Playwright vem com Node 20)
-RUN apt-get update -q && apt-get install -y --no-install-recommends curl \
- && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
- && apt-get install -y nodejs \
- && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
 
 RUN npm ci --ignore-scripts && npx prisma generate
 
+# ── Stage 2: builder ─────────────────────────────────────────────────────────
+FROM node:22-bookworm-slim AS builder
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# ── Stage 2: runner ──────────────────────────────────────────────────────────
-# Mesma imagem base — Chromium já instalado, sem downloads adicionais
-FROM mcr.microsoft.com/playwright:v1.49.0-noble AS runner
+# ── Stage 3: runner ──────────────────────────────────────────────────────────
+FROM node:22-bookworm-slim AS runner
 WORKDIR /app
-
-RUN apt-get update -q && apt-get install -y --no-install-recommends curl \
- && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
- && apt-get install -y nodejs \
- && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+# Usa chromium do sistema — mais leve que baixar via playwright
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Usuário não-root
-RUN groupadd --system --gid 1001 nodejs 2>/dev/null || true \
- && useradd --system --uid 1001 --gid nodejs nextjs 2>/dev/null || true
+RUN apt-get update -q && apt-get install -y --no-install-recommends \
+    chromium \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copia artefatos do build
+RUN groupadd --system --gid 1001 nodejs \
+ && useradd --system --uid 1001 --gid nodejs nextjs
+
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
