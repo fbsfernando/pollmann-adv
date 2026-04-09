@@ -47,8 +47,14 @@ services:
       - traefik.enable=true
       - traefik.http.routers.pollmann-adv.entrypoints=http
       - "traefik.http.routers.pollmann-adv.rule=Host(`q4oogkwgg800ccoc480kw48c.78.47.75.193.sslip.io`)"
+      - traefik.http.routers.pollmann-adv.middlewares=redirect-to-https
       - traefik.http.services.pollmann-adv.loadbalancer.server.port=3000
       - traefik.docker.network=coolify
+      - traefik.http.routers.pollmann-adv-https.entrypoints=https
+      - "traefik.http.routers.pollmann-adv-https.rule=Host(`q4oogkwgg800ccoc480kw48c.78.47.75.193.sslip.io`)"
+      - traefik.http.routers.pollmann-adv-https.tls=true
+      - traefik.http.routers.pollmann-adv-https.tls.certresolver=letsencrypt
+      - traefik.http.routers.pollmann-adv-https.service=pollmann-adv
     networks:
       - internal
       - coolify
