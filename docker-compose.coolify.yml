@@ -4,13 +4,13 @@ services:
     container_name: juridico-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: juridico
+      POSTGRES_PASSWORD: "JuridicoAdv2026"
+      POSTGRES_DB: juridico_adv
     volumes:
-      - pgdata_v3:/var/lib/postgresql/data
+      - pgdata_v4:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U juridico -d juridico_adv"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,7 +27,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: "postgresql://juridico:JuridicoAdv2026@postgres:5432/juridico_adv?schema=public"
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_URL: ${AUTH_URL}
       NEXTAUTH_URL: ${AUTH_URL}
@@ -60,7 +60,7 @@ services:
       - coolify
 
 volumes:
-  pgdata_v3:
+  pgdata_v4:
   archive:
 
 networks:
