@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: juridico-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: juridico-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_URL: ${AUTH_URL}
+      NEXTAUTH_URL: ${AUTH_URL}
+      PIPELINE_ARCHIVE_DIR: /app/storage/archive
+      EPROC_TRIBUNAL: ${EPROC_TRIBUNAL}
+      EPROC_TJSC_USER: ${EPROC_TJSC_USER}
+      EPROC_TJSC_PASSWORD: ${EPROC_TJSC_PASSWORD}
+      EPROC_TJSC_TOTP_SEED: ${EPROC_TJSC_TOTP_SEED}
+      EPROC_TJRS_USER: ${EPROC_TJRS_USER}
+      EPROC_TJRS_PASSWORD: ${EPROC_TJRS_PASSWORD}
+      EPROC_TJRS_TOTP_SEED: ${EPROC_TJRS_TOTP_SEED}
+    volumes:
+      - archive:/app/storage/archive
+    expose:
+      - "3000"
+    networks:
+      - internal
+      - external
+
+volumes:
+  pgdata:
+  archive:
+
+networks:
+  internal:
+    internal: true
+  external:
