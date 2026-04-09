@@ -48,9 +48,10 @@ services:
       - traefik.http.routers.pollmann-adv.entrypoints=http,https
       - "traefik.http.routers.pollmann-adv.rule=Host(`q4oogkwgg800ccoc480kw48c.78.47.75.193.sslip.io`)"
       - traefik.http.services.pollmann-adv.loadbalancer.server.port=3000
+      - traefik.docker.network=coolify
     networks:
       - internal
-      - external
+      - coolify
 
 volumes:
   pgdata:
@@ -59,4 +60,5 @@ volumes:
 networks:
   internal:
     internal: true
-  external:
+  coolify:
+    external: true
