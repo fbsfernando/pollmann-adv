@@ -43,6 +43,11 @@ services:
       - archive:/app/storage/archive
     expose:
       - "3000"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.pollmann-adv.entrypoints=http,https
+      - traefik.http.routers.pollmann-adv.rule=Host(`${SERVICE_FQDN_APP}`)
+      - traefik.http.services.pollmann-adv.loadbalancer.server.port=3000
     networks:
       - internal
       - external
