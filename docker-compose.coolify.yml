@@ -1,5 +1,5 @@
 services:
-  postgres:
+  juridicodb:
     image: postgres:16-alpine
     container_name: juridico-db
     restart: unless-stopped
@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: "JuridicoAdv2026"
       POSTGRES_DB: juridico_adv
     volumes:
-      - pgdata_v5:/var/lib/postgresql/data
+      - pgdata_v6:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U juridico -d juridico_adv"]
       interval: 10s
@@ -24,10 +24,10 @@ services:
     container_name: juridico-app
     restart: unless-stopped
     depends_on:
-      postgres:
+      juridicodb:
         condition: service_healthy
     environment:
-      DATABASE_URL: "postgresql://juridico:JuridicoAdv2026@juridico-db:5432/juridico_adv?schema=public"
+      DATABASE_URL: "postgresql://juridico:JuridicoAdv2026@juridicodb:5432/juridico_adv?schema=public"
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_URL: ${AUTH_URL}
       NEXTAUTH_URL: ${AUTH_URL}
@@ -60,7 +60,7 @@ services:
       - coolify
 
 volumes:
-  pgdata_v5:
+  pgdata_v6:
   archive:
 
 networks:
