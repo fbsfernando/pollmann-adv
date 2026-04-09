@@ -7,8 +7,9 @@ services:
       POSTGRES_USER: juridico
       POSTGRES_PASSWORD: "JuridicoAdv2026"
       POSTGRES_DB: juridico_adv
+      POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
-      - pgdata_v4:/var/lib/postgresql/data
+      - pgdata_v5:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U juridico -d juridico_adv"]
       interval: 10s
@@ -27,7 +28,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: "postgresql://juridico:JuridicoAdv2026@postgres:5432/juridico_adv?schema=public"
+      DATABASE_URL: "postgresql://juridico@postgres:5432/juridico_adv?schema=public"
       AUTH_SECRET: ${AUTH_SECRET}
       AUTH_URL: ${AUTH_URL}
       NEXTAUTH_URL: ${AUTH_URL}
@@ -60,7 +61,7 @@ services:
       - coolify
 
 volumes:
-  pgdata_v4:
+  pgdata_v5:
   archive:
 
 networks:
