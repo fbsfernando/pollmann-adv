@@ -11,8 +11,8 @@ out/
 .env.prod
 .env*.local
 
-# storage local
-storage/
+# storage local (arquivos gerados — não commitar)
+/storage/
 
 # misc
 *.log
