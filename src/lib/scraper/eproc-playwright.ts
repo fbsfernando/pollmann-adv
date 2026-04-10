@@ -181,7 +181,6 @@ async function listarProcessosDoPainel(page: Page, timeout: number): Promise<Pro
         link: a.href,
       }))
       .filter(r => cnj.test(r.numero))
-      .slice(0, 100)
   })
 
   // Deduplica por número
