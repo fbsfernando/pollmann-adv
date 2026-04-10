@@ -22,6 +22,10 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
 import { TOTP } from 'otpauth'
 
+// Usa chromium do sistema se disponível (Docker), caso contrário Playwright gerencia
+const CHROMIUM_EXECUTABLE = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined
+const BASE_LAUNCH_ARGS = ['--disable-dev-shm-usage', '--no-sandbox', '--disable-setuid-sandbox']
+
 import type { EprocClient } from '@/lib/scraper/eproc-client'
 import type { ExternalAndamentoInput, ScraperSnapshot } from '@/lib/pipeline/types'
 
@@ -398,7 +402,7 @@ export async function resolveEprocProcessLink(config: EprocConfig, processoNumer
   let browser: Browser | null = null
 
   try {
-    browser = await chromium.launch({ headless: config.headless ?? true })
+    browser = await chromium.launch({ headless: config.headless ?? true, executablePath: CHROMIUM_EXECUTABLE, args: BASE_LAUNCH_ARGS })
     const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       viewport: { width: 1280, height: 800 },
@@ -445,7 +449,7 @@ export async function downloadEprocDocument(
   }
 
   try {
-    browser = await chromium.launch({ headless: config.headless ?? true })
+    browser = await chromium.launch({ headless: config.headless ?? true, executablePath: CHROMIUM_EXECUTABLE, args: BASE_LAUNCH_ARGS })
     const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       viewport: { width: 1280, height: 800 },
@@ -671,7 +675,7 @@ export function createEprocPlaywrightClient(config: EprocConfig): EprocClient & 
     async collectSnapshot(): Promise<ScraperSnapshot> {
       let browser: Browser | null = null
       try {
-        browser = await chromium.launch({ headless: config.headless ?? true })
+        browser = await chromium.launch({ headless: config.headless ?? true, executablePath: CHROMIUM_EXECUTABLE, args: BASE_LAUNCH_ARGS })
         const context = await browser.newContext({
           userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           viewport: { width: 1280, height: 800 },
@@ -693,7 +697,8 @@ export function createEprocPlaywrightClient(config: EprocConfig): EprocClient & 
       try {
         browser = await chromium.launch({
           headless: config.headless ?? true,
-          args: ['--disable-dev-shm-usage'],
+          executablePath: CHROMIUM_EXECUTABLE,
+          args: BASE_LAUNCH_ARGS,
         })
         const context = await browser.newContext({
           userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
