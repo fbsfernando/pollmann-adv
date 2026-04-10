@@ -23,27 +23,29 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-# Usa chromium do sistema — mais leve que baixar via playwright
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
-
-RUN apt-get update -q && apt-get install -y --no-install-recommends \
-    chromium \
-    && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 1001 nodejs \
- && useradd --system --uid 1001 --gid nodejs nextjs
+ && useradd --system --uid 1001 --gid nodejs nextjs --create-home
+
+# Copia node_modules antes para poder usar playwright CLI
+COPY --from=builder /app/node_modules ./node_modules
+
+# Instala dependências de sistema para o chromium_headless_shell do Playwright
+RUN ./node_modules/.bin/playwright install-deps chromium
 
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/src ./src
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+RUN chown -R nextjs:nodejs /app/node_modules
 
 RUN mkdir -p /app/storage/archive && chown -R nextjs:nodejs /app/storage
 
 USER nextjs
+
+# Instala o chromium_headless_shell do Playwright (otimizado para Docker, sem crashpad)
+RUN npx playwright install chromium
 
 EXPOSE 3000
 ENV PORT=3000
