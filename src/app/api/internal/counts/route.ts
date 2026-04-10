@@ -7,12 +7,21 @@ export async function GET(req: NextRequest) {
   }
 
   const p = new PrismaClient()
-  const [clientes, processos, andamentos] = await Promise.all([
+  const [clientes, processos, andamentos, documentos, docsSemArquivo] = await Promise.all([
     p.cliente.count(),
     p.processo.count(),
     p.andamento.count(),
+    p.documento.count(),
+    p.documento.count({ where: { storagePath: { startsWith: 'eproc/' } } }),
   ])
   await p.$disconnect()
 
-  return NextResponse.json({ clientes, processos, andamentos })
+  return NextResponse.json({
+    clientes,
+    processos,
+    andamentos,
+    documentos,
+    arquivos_pendentes: docsSemArquivo,
+    arquivos_baixados: documentos - docsSemArquivo,
+  })
 }
