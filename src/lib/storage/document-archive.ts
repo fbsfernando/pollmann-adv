@@ -55,6 +55,14 @@ export const archiveDocument = async (input: ArchiveInput): Promise<ArchiveResul
   })
 
   const absolutePath = path.join(input.baseDir, relativePath)
+
+  // Proteção contra path traversal: garante que o arquivo resolve dentro de baseDir
+  const resolvedBase = path.resolve(input.baseDir)
+  const resolvedFile = path.resolve(absolutePath)
+  if (!resolvedFile.startsWith(resolvedBase + path.sep) && resolvedFile !== resolvedBase) {
+    throw new Error(`Path traversal detectado: "${relativePath}" escapa do diretório base`)
+  }
+
   await mkdir(path.dirname(absolutePath), { recursive: true })
   await writeFile(absolutePath, input.content)
 

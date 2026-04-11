@@ -40,30 +40,22 @@ export const syncAndamentos = async (
   const loadDocumentContent = deps?.loadDocumentContent ?? defaultLoadDocumentContent
 
   for (const candidate of diff.candidates) {
-    const created = await prisma.andamento.create({
-      data: {
-        processoId: candidate.processoId,
-        externalId: candidate.andamento.externalId,
-        data: candidate.andamento.data,
-        tipo: candidate.andamento.tipo,
-        descricao: candidate.andamento.descricao,
-        fonte: FonteAndamento.SCRAPER,
-      },
-    })
-
-    persistedAndamentos += 1
-
+    // Busca dados do processo antes da transação (necessário para o path de archive)
     const processo = await prisma.processo.findUnique({
       where: { id: candidate.processoId },
       include: { cliente: true },
     })
 
-    const persistedDocPaths: string[] = []
+    // Passo 1: Arquiva documentos (I/O de arquivo fora da transação BD)
+    type DocArchiveEntry = {
+      doc: (typeof candidate.andamento.documentos)[number]
+      archivePath: string
+    }
+    const docEntries: DocArchiveEntry[] = []
 
     for (const doc of candidate.andamento.documentos) {
       let archivePath = doc.storagePath ?? ''
 
-      // Usa conteúdo inline do scraper (preferido) ou busca via loadDocumentContent
       const inlineContent = (doc as { content?: Buffer }).content
       const contentSource = inlineContent
         ? Promise.resolve(inlineContent)
@@ -79,36 +71,57 @@ export const syncAndamentos = async (
           documentoNome: doc.nome,
           content,
         })
-
         archivePath = archive.storagePath
       } catch {
         archiveFailures += 1
       }
 
-      await prisma.documento.upsert({
-        where: { externalId: doc.externalId },
-        create: {
-          externalId: doc.externalId,
-          andamentoId: created.id,
+      docEntries.push({ doc, archivePath })
+    }
+
+    // Passo 2: Persiste andamento + documentos atomicamente
+    const persistedDocPaths: string[] = []
+
+    await prisma.$transaction(async (tx) => {
+      const created = await tx.andamento.create({
+        data: {
           processoId: candidate.processoId,
-          nome: doc.nome,
-          tipo: doc.tipo,
-          tamanhoBytes: doc.tamanhoBytes,
-          storagePath: archivePath,
-        },
-        update: {
-          andamentoId: created.id,
-          processoId: candidate.processoId,
-          nome: doc.nome,
-          tipo: doc.tipo,
-          tamanhoBytes: doc.tamanhoBytes,
-          storagePath: archivePath,
+          externalId: candidate.andamento.externalId,
+          data: candidate.andamento.data,
+          tipo: candidate.andamento.tipo,
+          descricao: candidate.andamento.descricao,
+          fonte: FonteAndamento.SCRAPER,
         },
       })
 
-      persistedDocumentos += 1
-      if (archivePath) persistedDocPaths.push(archivePath)
-    }
+      for (const { doc, archivePath } of docEntries) {
+        await tx.documento.upsert({
+          where: { externalId: doc.externalId },
+          create: {
+            externalId: doc.externalId,
+            andamentoId: created.id,
+            processoId: candidate.processoId,
+            nome: doc.nome,
+            tipo: doc.tipo,
+            tamanhoBytes: doc.tamanhoBytes,
+            storagePath: archivePath,
+          },
+          update: {
+            andamentoId: created.id,
+            processoId: candidate.processoId,
+            nome: doc.nome,
+            tipo: doc.tipo,
+            tamanhoBytes: doc.tamanhoBytes,
+            storagePath: archivePath,
+          },
+        })
+
+        if (archivePath) persistedDocPaths.push(archivePath)
+      }
+    })
+
+    persistedAndamentos += 1
+    persistedDocumentos += docEntries.length
 
     if (deps?.notificationSender) {
       const notification = await notifyNovoAndamento(deps.notificationSender, {

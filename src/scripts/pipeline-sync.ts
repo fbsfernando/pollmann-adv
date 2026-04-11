@@ -23,6 +23,7 @@ export const run = async (): Promise<number> => {
       totpSeed: getEnv(`EPROC_${tribunal}_TOTP_SEED`),
       headless: true,
       timeout: 45000,
+      interProcessoDelayMs: Number(process.env.EPROC_INTER_PROCESSO_DELAY_MS ?? 2000),
     }
 
     const client = createEprocPlaywrightClient(scraperConfig)

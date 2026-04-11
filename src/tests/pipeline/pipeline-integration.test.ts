@@ -10,6 +10,8 @@ const db = {
   processo: { findMany: vi.fn(), findUnique: vi.fn() },
   andamento: { findMany: vi.fn(), create: vi.fn() },
   documento: { upsert: vi.fn() },
+  // Executa o callback com o próprio db como client transacional (mock)
+  $transaction: vi.fn((fn: (tx: unknown) => Promise<unknown>) => fn(db)),
 }
 
 describe('pipeline integration', () => {

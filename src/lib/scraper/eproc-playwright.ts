@@ -19,6 +19,8 @@
  *   Por isso, todos os links são extraídos dos hrefs do painel logado.
  */
 
+import { setTimeout as sleep } from 'node:timers/promises'
+
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
 import { TOTP } from 'otpauth'
 
@@ -43,6 +45,8 @@ export interface EprocConfig {
   headless?: boolean
   /** Timeout por operação em ms (default 30000) */
   timeout?: number
+  /** Delay em ms entre consultas de processos para evitar bloqueio por rate limit (default 2000) */
+  interProcessoDelayMs?: number
 }
 
 const ENTRY_URLS: Record<Tribunal, string> = {
@@ -624,9 +628,17 @@ async function coletarAndamentos(
   const andamentos: ExternalAndamentoInput[] = []
   // Mapa externalId → href completo para download posterior
   const rawDocs = new Map<string, string>()
+  const interProcessoDelayMs = config.interProcessoDelayMs ?? 2000
 
-  for (const ref of processoRefs) {
-    console.log(`[EPROC] Consultando ${ref.numero}...`)
+  for (let i = 0; i < processoRefs.length; i++) {
+    const ref = processoRefs[i]
+
+    // Rate limiting: aguarda entre processos para não sobrecarregar o tribunal
+    if (i > 0 && interProcessoDelayMs > 0) {
+      await sleep(interProcessoDelayMs)
+    }
+
+    console.log(`[EPROC] Consultando ${ref.numero} (${i + 1}/${processoRefs.length})...`)
     try {
       if (page.isClosed()) {
         page = await context.newPage()
