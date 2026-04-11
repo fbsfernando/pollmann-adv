@@ -580,23 +580,41 @@ export function createEprocHttpClient(config: EprocHttpConfig): EprocClient & {
 
       console.log(`[EPROC-HTTP] Consultando ${ref.numero} (${i + 1}/${processoRefs.length})...`)
 
-      try {
-        const { html } = await httpRequest(ref.link, {
-          cookies: session.cookies,
-          timeout,
-        })
+      // Retry com backoff para lidar com timeouts em processos pesados
+      let lastError: unknown = null
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          // Timeout progressivo: processos pesados ganham mais tempo em retries
+          const attemptTimeout = timeout * attempt
 
-        // Busca páginas adicionais de eventos (paginação AJAX do E-PROC)
-        const fullHtml = await fetchAllEventPages(html, ref.link, session.cookies, timeout)
+          const { html } = await httpRequest(ref.link, {
+            cookies: session.cookies,
+            timeout: attemptTimeout,
+          })
 
-        const { andamentos: processoAndamentos, docRefs } = extrairAndamentosDoHtml(fullHtml, ref.numero)
-        andamentos.push(...processoAndamentos)
-        for (const [k, v] of docRefs) {
-          if (v) allDocRefs.set(k, v)
+          // Busca páginas adicionais de eventos (paginação AJAX do E-PROC)
+          const fullHtml = await fetchAllEventPages(html, ref.link, session.cookies, attemptTimeout)
+
+          const { andamentos: processoAndamentos, docRefs } = extrairAndamentosDoHtml(fullHtml, ref.numero)
+          andamentos.push(...processoAndamentos)
+          for (const [k, v] of docRefs) {
+            if (v) allDocRefs.set(k, v)
+          }
+          console.log(`[EPROC-HTTP]   → ${processoAndamentos.length} andamento(s)`)
+          lastError = null
+          break
+        } catch (err) {
+          lastError = err
+          if (attempt < 3) {
+            const backoffMs = 3000 * attempt
+            console.warn(`[EPROC-HTTP]   Tentativa ${attempt}/3 falhou (${(err as Error).message?.slice(0, 60)}) — retry em ${backoffMs / 1000}s...`)
+            await sleep(backoffMs)
+          }
         }
-        console.log(`[EPROC-HTTP]   → ${processoAndamentos.length} andamento(s)`)
-      } catch (err) {
-        console.error(`[EPROC-HTTP] Erro em ${ref.numero}:`, err)
+      }
+
+      if (lastError) {
+        console.error(`[EPROC-HTTP] Erro em ${ref.numero} após 3 tentativas:`, (lastError as Error).message)
       }
     }
 
