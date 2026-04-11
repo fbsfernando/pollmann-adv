@@ -424,6 +424,83 @@ function extrairAndamentosDoHtml(
   return { andamentos, docRefs }
 }
 
+// ─── Paginação de eventos ────────────────────────────────────────────────────
+
+/**
+ * O E-PROC pagina os eventos em blocos de ~100. A primeira página vem no HTML
+ * do processo. As demais são carregadas via POST AJAX para `processo_selecionar_pagina`.
+ *
+ * Extrai `urlPaginacao` e `totalPaginas` do JavaScript embutido na página,
+ * faz POST para cada página adicional (1..totalPaginas), e injeta as linhas
+ * retornadas (#tblEventosNovos > tbody > tr) na tabela #tblEventos do HTML original.
+ */
+async function fetchAllEventPages(
+  initialHtml: string,
+  processoUrl: string,
+  cookies: CookieJar,
+  timeout: number
+): Promise<string> {
+  // Extrai urlPaginacao do JS embutido
+  const urlMatch = initialHtml.match(/urlPaginacao\s*=\s*'([^']+)'/)
+  if (!urlMatch) return initialHtml
+
+  // Extrai totalPaginas
+  const totalMatch = initialHtml.match(/window\.totalPaginas\s*=\s*(\d+)/)
+  if (!totalMatch) return initialHtml
+
+  const totalPaginas = parseInt(totalMatch[1], 10)
+  if (totalPaginas <= 0) return initialHtml
+
+  // Resolve URL relativa para absoluta (relativa ao diretório da URL do processo)
+  const paginacaoUrl = urlMatch[1].startsWith('http')
+    ? urlMatch[1]
+    : new URL(urlMatch[1], processoUrl).href
+
+  console.log(`[EPROC-HTTP]   Paginação: ${totalPaginas + 1} páginas (buscando ${totalPaginas} adicionais)...`)
+
+  // Coleta as linhas de eventos adicionais
+  const extraRows: string[] = []
+
+  for (let pagina = 1; pagina <= totalPaginas; pagina++) {
+    try {
+      const { html: pageHtml } = await httpRequest(paginacaoUrl, {
+        method: 'POST',
+        body: `pagina=${pagina}`,
+        cookies,
+        timeout,
+      })
+
+      // A resposta contém #tblEventosNovos com as linhas da página
+      const $page = cheerio.load(pageHtml)
+      const newRows = $page('#tblEventosNovos > tbody').html()
+        ?? $page('#tblEventosNovos tbody').html()
+        ?? $page('#tblEventosNovos').html()
+        ?? ($page('tr').length > 0 ? $page('body').html() : null)
+
+      if (newRows) {
+        extraRows.push(newRows)
+      } else {
+        console.warn(`[EPROC-HTTP]     Página ${pagina}: sem eventos`)
+      }
+    } catch (err) {
+      console.warn(`[EPROC-HTTP]   Falha na página ${pagina}/${totalPaginas}: ${(err as Error).message}`)
+    }
+  }
+
+  if (extraRows.length === 0) return initialHtml
+
+  // Injeta as linhas extras na tabela #tblEventos do HTML original
+  const $ = cheerio.load(initialHtml)
+  const tbody = $('#tblEventos tbody')
+  if (tbody.length) {
+    tbody.append(extraRows.join(''))
+  } else {
+    $('#tblEventos').append(`<tbody>${extraRows.join('')}</tbody>`)
+  }
+
+  return $.html()
+}
+
 // ─── Download de documento ───────────────────────────────────────────────────
 
 async function downloadDocument(
@@ -509,7 +586,10 @@ export function createEprocHttpClient(config: EprocHttpConfig): EprocClient & {
           timeout,
         })
 
-        const { andamentos: processoAndamentos, docRefs } = extrairAndamentosDoHtml(html, ref.numero)
+        // Busca páginas adicionais de eventos (paginação AJAX do E-PROC)
+        const fullHtml = await fetchAllEventPages(html, ref.link, session.cookies, timeout)
+
+        const { andamentos: processoAndamentos, docRefs } = extrairAndamentosDoHtml(fullHtml, ref.numero)
         andamentos.push(...processoAndamentos)
         for (const [k, v] of docRefs) {
           if (v) allDocRefs.set(k, v)
