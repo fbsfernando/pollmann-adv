@@ -182,12 +182,56 @@ async function httpRequest(
   throw new Error(`Excedeu ${maxRedirects} redirects a partir de ${url}`)
 }
 
-// ─── Autenticação Keycloak ───────────────────────────────────────────────────
+// ─── Autenticação ────────────────────────────────────────────────────────────
 
 interface AuthSession {
   cookies: CookieJar
   painelUrl: string
   painelHtml: string
+}
+
+/**
+ * Detecta o tipo de formulário de login e monta os campos corretos.
+ *
+ * TJSC: SSO Keycloak puro → campos `username` / `password`
+ * TJRS: Formulário nativo do E-PROC (txtUsuario/pwdSenha) OU SSO Keycloak
+ */
+function detectLoginForm($: cheerio.CheerioAPI, pageUrl: string): {
+  action: string
+  fields: Record<string, string>
+  type: 'keycloak' | 'nativo'
+} {
+  // Tenta Keycloak primeiro (form com id kc-form-login ou action contendo login-actions)
+  const kcForm = $('form#kc-form-login, form[action*="login-actions"]')
+  if (kcForm.length) {
+    const action = kcForm.attr('action') ?? ''
+    return {
+      action: action.startsWith('http') ? action : new URL(action, pageUrl).href,
+      fields: { username: '', password: '', credentialId: '', login: 'Entrar' },
+      type: 'keycloak',
+    }
+  }
+
+  // Formulário nativo do E-PROC (TJRS usa txtUsuario/pwdSenha)
+  const nativeUserField = $('input[name="txtUsuario"]')
+  if (nativeUserField.length) {
+    const form = nativeUserField.closest('form')
+    const action = form.attr('action') ?? ''
+    return {
+      action: action.startsWith('http') ? action : new URL(action, pageUrl).href,
+      fields: { txtUsuario: '', pwdSenha: '' },
+      type: 'nativo',
+    }
+  }
+
+  // Fallback genérico — tenta qualquer form com campos de login
+  const anyForm = $('form').first()
+  const action = anyForm.attr('action') ?? ''
+  return {
+    action: action.startsWith('http') ? action : new URL(action, pageUrl).href,
+    fields: { username: '', password: '', login: 'Entrar' },
+    type: 'keycloak',
+  }
 }
 
 async function authenticate(config: EprocHttpConfig): Promise<AuthSession> {
@@ -197,51 +241,45 @@ async function authenticate(config: EprocHttpConfig): Promise<AuthSession> {
 
   console.log(`[EPROC-HTTP] Iniciando login no ${config.tribunal}...`)
 
-  // 1. GET inicial → segue redirects até o formulário Keycloak
-  const step1 = await httpRequest(baseUrl, { cookies, timeout, redirect: 'follow' })
+  // 1. GET inicial → segue redirects até o formulário de login
+  const step1 = await httpRequest(baseUrl, { cookies, timeout })
 
-  // Extrai action do form de login do Keycloak
+  // 2. Detecta o tipo de form e monta os campos
   const $login = cheerio.load(step1.html)
-  let formAction = $login('form#kc-form-login').attr('action')
-    ?? $login('form[action*="login-actions"]').attr('action')
+  const loginForm = detectLoginForm($login, step1.response.url)
 
-  if (!formAction) {
-    // Se não encontrou form Keycloak, pode ser formulário nativo do E-PROC
-    formAction = $login('form[action*="controlador"]').attr('action')
-      ?? $login('form').attr('action')
-  }
-
-  if (!formAction) {
+  if (!loginForm.action) {
     throw new Error(`Formulário de login não encontrado. URL: ${step1.response.url}`)
   }
 
-  // Resolve URL relativa se necessário
-  if (!formAction.startsWith('http')) {
-    formAction = new URL(formAction, step1.response.url).href
+  console.log(`[EPROC-HTTP] Form type: ${loginForm.type}, action: ${loginForm.action.slice(0, 100)}...`)
+
+  // Preenche credenciais nos campos corretos
+  const loginBody = new URLSearchParams()
+  for (const [key, defaultVal] of Object.entries(loginForm.fields)) {
+    if (key === 'username' || key === 'txtUsuario') {
+      loginBody.set(key, config.usuario)
+    } else if (key === 'password' || key === 'pwdSenha') {
+      loginBody.set(key, config.senha)
+    } else {
+      loginBody.set(key, defaultVal)
+    }
   }
 
-  console.log(`[EPROC-HTTP] Form action: ${formAction.slice(0, 100)}...`)
-
-  // 2. POST credenciais
-  const loginBody = new URLSearchParams({
-    username: config.usuario,
-    password: config.senha,
-    credentialId: '',
-    login: 'Entrar',
-  })
-
-  const step2 = await httpRequest(formAction, {
+  const step2 = await httpRequest(loginForm.action, {
     method: 'POST',
     body: loginBody,
     cookies,
     timeout,
-    redirect: 'follow',
   })
 
-  // 3. TOTP (se necessário)
+  // 3. TOTP (se necessário) — ambos os tribunais podem ter TOTP
   const $totp = cheerio.load(step2.html)
   const totpAction = $totp('form[action*="login-actions"]').attr('action')
     ?? $totp('form#kc-otp-login-form').attr('action')
+    ?? ($totp('input#otp, input[name="otp"]').length
+      ? $totp('input#otp, input[name="otp"]').closest('form').attr('action')
+      : undefined)
 
   if (totpAction) {
     const code = await generateFreshTotp(config.totpSeed)
@@ -254,10 +292,8 @@ async function authenticate(config: EprocHttpConfig): Promise<AuthSession> {
       body: new URLSearchParams({ otp: code, login: 'Entrar' }),
       cookies,
       timeout,
-      redirect: 'follow',
     })
 
-    // Após TOTP, deve redirecionar para o painel
     const painelUrl = step3.response.url
     console.log(`[EPROC-HTTP] Login OK. URL: ${painelUrl}`)
     return { cookies, painelUrl, painelHtml: step3.html }
