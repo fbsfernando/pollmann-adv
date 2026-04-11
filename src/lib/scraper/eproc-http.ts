@@ -42,7 +42,7 @@ export interface EprocHttpConfig {
 
 const BASE_URLS: Record<Tribunal, string> = {
   TJSC: 'https://eproc1g.tjsc.jus.br/eproc/',
-  TJRS: 'https://eproc.tjrs.jus.br/eprocV2/',
+  TJRS: 'https://eproc1g.tjrs.jus.br/eproc/',
 }
 
 const SSO_HOSTS: Record<Tribunal, string> = {

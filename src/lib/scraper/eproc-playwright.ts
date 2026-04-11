@@ -1,7 +1,7 @@
 /**
  * Scraper E-PROC via Playwright.
  *
- * Suporta TJSC (eproc1g.tjsc.jus.br) e TJRS (eproc.tjrs.jus.br).
+ * Suporta TJSC (eproc1g.tjsc.jus.br) e TJRS (eproc1g.tjrs.jus.br).
  * Autenticação: login + senha + TOTP (Google Authenticator).
  *
  * Fluxo:
@@ -51,7 +51,7 @@ export interface EprocConfig {
 
 const ENTRY_URLS: Record<Tribunal, string> = {
   TJSC: 'https://eproc1g.tjsc.jus.br/eproc/',
-  TJRS: 'https://eproc.tjrs.jus.br/eprocV2/',
+  TJRS: 'https://eproc1g.tjrs.jus.br/eproc/',
 }
 
 // ─── Helpers TOTP ─────────────────────────────────────────────────────────────
@@ -448,7 +448,7 @@ export async function downloadEprocDocument(
 
   const BASE_URLS: Record<Tribunal, string> = {
     TJSC: 'https://eproc1g.tjsc.jus.br/eproc/',
-    TJRS: 'https://eproc.tjrs.jus.br/eprocV2/',
+    TJRS: 'https://eproc1g.tjrs.jus.br/eproc/',
   }
 
   try {
