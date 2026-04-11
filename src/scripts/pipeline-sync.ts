@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 
-import { createEprocPlaywrightClient, type Tribunal } from '@/lib/scraper/eproc-playwright'
+import { createEprocHttpClient, type Tribunal } from '@/lib/scraper/eproc-http'
 import { syncAndamentos } from '@/lib/pipeline/sync-andamentos'
 
 const getEnv = (key: string, fallback?: string): string => {
@@ -21,12 +21,11 @@ export const run = async (): Promise<number> => {
       usuario: getEnv(`EPROC_${tribunal}_USER`),
       senha: getEnv(`EPROC_${tribunal}_PASSWORD`),
       totpSeed: getEnv(`EPROC_${tribunal}_TOTP_SEED`),
-      headless: true,
       timeout: 45000,
       interProcessoDelayMs: Number(process.env.EPROC_INTER_PROCESSO_DELAY_MS ?? 2000),
     }
 
-    const client = createEprocPlaywrightClient(scraperConfig)
+    const client = createEprocHttpClient(scraperConfig)
 
     // Verifica quais documentos já estão arquivados para não baixar de novo
     const isDocumentKnown = async (externalId: string): Promise<boolean> => {
@@ -38,7 +37,7 @@ export const run = async (): Promise<number> => {
       return !!(doc?.storagePath && !doc.storagePath.startsWith('eproc/'))
     }
 
-    // Coleta andamentos e baixa documentos novos dentro da mesma sessão Playwright
+    // Coleta andamentos e baixa documentos novos via HTTP direto
     const snapshot = await client.collectSnapshotWithDocuments(isDocumentKnown)
 
     const result = await syncAndamentos(prisma, { collectSnapshot: async () => snapshot }, {
