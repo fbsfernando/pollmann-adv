@@ -118,6 +118,7 @@ type FetchOpts = {
   timeout: number
   redirect?: RequestRedirect
   contentType?: string
+  referer?: string
 }
 
 /**
@@ -139,6 +140,10 @@ async function httpRequest(
       'Cookie': opts.cookies.toString(),
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+    }
+
+    if (opts.referer) {
+      headers['Referer'] = opts.referer
     }
 
     if (currentBody && opts.contentType !== 'none') {
@@ -319,6 +324,76 @@ interface ProcessoRef {
   link: string
 }
 
+/**
+ * O E-PROC pagina a listagem de processos (50 por página por padrão).
+ *
+ * A paginação usa o Infra framework: `infraAcaoPaginar('=', pag, 'Infra', null)`.
+ * A função apenas muda `hdnInfraPaginaAtual.value = pag` e submete o form.
+ * Replicamos via POST para o form action com todos os campos hidden preservados.
+ */
+async function fetchAllListPages(
+  initialHtml: string,
+  listaUrl: string,
+  cookies: CookieJar,
+  timeout: number
+): Promise<string> {
+  const $ = cheerio.load(initialHtml)
+
+  // Detecta total de páginas pelo <select id="selInfraPaginacaoSuperior">
+  const options = $('#selInfraPaginacaoSuperior option')
+  if (options.length <= 1) return initialHtml // sem paginação
+
+  const totalPaginas = options.length
+  const itemsPerPage = parseInt($('input[name="hdnInfraNroItens"]').attr('value') ?? '50', 10)
+  console.log(`[EPROC-HTTP]   Listagem paginada: ${totalPaginas} páginas × ${itemsPerPage} itens`)
+
+  const form = $('#frmProcessoLista')
+  if (!form.length) return initialHtml
+
+  // Tenta primeiro: POST ao form action setando hdnInfraNroItens alto para trazer tudo em 1 página
+  const formAction = form.attr('action') ?? ''
+  const actionUrl = formAction.startsWith('http')
+    ? formAction
+    : new URL(formAction, listaUrl).href
+
+  // Extrai APENAS os campos hdnInfra* (estado de pagina/critérios stored server-side).
+  // Campos de filtro vazios (localidade, data, etc.) fazem o servidor resetar a busca
+  // e retornar "Nenhum registro encontrado".
+  const baseFields: Record<string, string> = {}
+  form.find('input[name^="hdnInfra"]').each((_, el) => {
+    const name = $(el).attr('name')
+    if (!name || name.startsWith('chkInfraItem')) return
+    const val = $(el).attr('value') ?? ''
+    baseFields[name] = typeof val === 'string' ? val : ''
+  })
+
+  let mergedHtml = initialHtml
+  for (let pagina = 1; pagina < totalPaginas; pagina++) {
+    try {
+      // infraAcaoPaginar apenas muda hdnInfraPaginaAtual e submete o form
+      const body = new URLSearchParams(baseFields)
+      body.set('hdnInfraPaginaAtual', String(pagina))
+
+      const { html: pageHtml } = await httpRequest(actionUrl, {
+        method: 'POST',
+        body,
+        cookies,
+        timeout,
+        referer: listaUrl,
+      })
+
+      const $page = cheerio.load(pageHtml)
+      const novosLinks = $page('a[href*="processo_selecionar"]').length
+      console.log(`[EPROC-HTTP]   Página ${pagina + 1}/${totalPaginas}: ${novosLinks} links`)
+      if (novosLinks > 0) mergedHtml += '\n' + pageHtml
+    } catch (err) {
+      console.warn(`[EPROC-HTTP]   Falha na página ${pagina + 1}: ${(err as Error).message}`)
+    }
+  }
+
+  return mergedHtml
+}
+
 async function listarProcessos(
   session: AuthSession,
   timeout: number
@@ -349,7 +424,11 @@ async function listarProcessos(
     timeout,
   })
 
-  const $lista = cheerio.load(html)
+  // O E-PROC pagina a listagem em blocos (default 50 itens/página).
+  // Coleta todas as páginas agregando os links em um único documento.
+  const fullHtml = await fetchAllListPages(html, relacaoHref, session.cookies, timeout)
+
+  const $lista = cheerio.load(fullHtml)
   const cnj = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/
   const refs: ProcessoRef[] = []
   const seen = new Set<string>()
