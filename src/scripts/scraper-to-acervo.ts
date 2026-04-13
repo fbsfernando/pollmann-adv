@@ -19,7 +19,7 @@
 import 'dotenv/config'
 import { mkdir, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
-import { createEprocPlaywrightClient, type Tribunal } from '@/lib/scraper/eproc-playwright'
+import { createEprocHttpClient, type Tribunal } from '@/lib/scraper/eproc-http'
 import type { ScraperSnapshot, ExternalAndamentoInput } from '@/lib/pipeline/types'
 
 const TRIBUNAL = (process.argv[2]?.toUpperCase() as Tribunal) ?? 'TJSC'
@@ -118,13 +118,13 @@ async function main() {
   console.log(`Usuário: ${usuario}`)
   console.log(`Destino: ${OUTPUT_PATH}\n`)
 
-  const client = createEprocPlaywrightClient({
+  const client = createEprocHttpClient({
     tribunal: TRIBUNAL,
     usuario,
     senha,
     totpSeed,
-    headless: true,
     timeout: 45000,
+    interProcessoDelayMs: Number(process.env.EPROC_INTER_PROCESSO_DELAY_MS ?? 2000),
   })
 
   console.log('[1/3] Coletando andamentos do E-PROC...')
