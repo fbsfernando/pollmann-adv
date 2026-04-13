@@ -9,8 +9,24 @@ import type { Role } from "@prisma/client"
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma) as Adapter,
   session: { strategy: "jwt" },
+  trustHost: true,
   pages: {
     signIn: "/login",
+  },
+  cookies: {
+    // Remove __Host- prefix — tem regras estritas que falham em domínios sslip.io
+    csrfToken: {
+      name: "authjs.csrf-token",
+      options: { httpOnly: true, sameSite: "lax", path: "/", secure: true },
+    },
+    sessionToken: {
+      name: "authjs.session-token",
+      options: { httpOnly: true, sameSite: "lax", path: "/", secure: true },
+    },
+    callbackUrl: {
+      name: "authjs.callback-url",
+      options: { httpOnly: true, sameSite: "lax", path: "/", secure: true },
+    },
   },
   providers: [
     Credentials({
