@@ -17,7 +17,7 @@
  */
 
 import { setTimeout as sleep } from 'node:timers/promises'
-import { ProxyAgent, type Dispatcher } from 'undici'
+import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from 'undici'
 import { TOTP } from 'otpauth'
 import * as cheerio from 'cheerio'
 
@@ -161,8 +161,10 @@ async function httpRequest(
       headers['Content-Type'] = opts.contentType ?? 'application/x-www-form-urlencoded'
     }
 
-    // fetchOptions inclui dispatcher quando há proxy configurado no cookie jar
-    // (undici suporta dispatcher via RequestInit, mas o tipo de fetch nativo não)
+    // Usa undici.fetch quando há dispatcher (proxy) porque o fetch nativo do Node
+    // usa undici interno e há incompatibilidade entre versões quando se passa
+    // um Dispatcher criado com o pacote @undici.
+    const dispatcher = opts.dispatcher ?? opts.cookies.dispatcher
     const fetchOptions: RequestInit & { dispatcher?: Dispatcher } = {
       method: currentMethod,
       headers,
@@ -170,12 +172,13 @@ async function httpRequest(
       redirect: 'manual',
       signal: AbortSignal.timeout(opts.timeout),
     }
-    const dispatcher = opts.dispatcher ?? opts.cookies.dispatcher
     if (dispatcher) {
       fetchOptions.dispatcher = dispatcher
     }
 
-    const response = await fetch(currentUrl, fetchOptions)
+    const response = dispatcher
+      ? await (undiciFetch(currentUrl, fetchOptions as never) as unknown as Promise<Response>)
+      : await fetch(currentUrl, fetchOptions)
 
     opts.cookies.capture(response)
 
@@ -613,14 +616,20 @@ async function downloadDocument(
   timeout: number
 ): Promise<{ content: Buffer; filename: string } | null> {
   try {
-    const response = await fetch(url, {
+    const fetchOpts: RequestInit & { dispatcher?: Dispatcher } = {
       headers: {
         'User-Agent': USER_AGENT,
         'Cookie': cookies.toString(),
       },
       redirect: 'follow',
       signal: AbortSignal.timeout(timeout),
-    })
+    }
+    if (cookies.dispatcher) {
+      fetchOpts.dispatcher = cookies.dispatcher
+    }
+    const response = cookies.dispatcher
+      ? await (undiciFetch(url, fetchOpts as never) as unknown as Promise<Response>)
+      : await fetch(url, fetchOpts)
 
     cookies.capture(response)
 
