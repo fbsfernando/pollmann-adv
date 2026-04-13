@@ -59,35 +59,6 @@ services:
       - internal
       - coolify
 
-  pipeline:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: juridico-pipeline
-    restart: unless-stopped
-    depends_on:
-      juridicodb:
-        condition: service_healthy
-      app:
-        condition: service_started
-    environment:
-      DATABASE_URL: "postgresql://juridico:JuridicoAdv2026@juridicodb:5432/juridico_adv?schema=public"
-      PIPELINE_ARCHIVE_DIR: /app/storage/archive
-      PIPELINE_INTERVAL_MS: "21600000"
-      EPROC_INTER_PROCESSO_DELAY_MS: "2000"
-      EPROC_TRIBUNAL: ${EPROC_TRIBUNAL}
-      EPROC_TJSC_USER: ${EPROC_TJSC_USER}
-      EPROC_TJSC_PASSWORD: ${EPROC_TJSC_PASSWORD}
-      EPROC_TJSC_TOTP_SEED: ${EPROC_TJSC_TOTP_SEED}
-      EPROC_TJRS_USER: ${EPROC_TJRS_USER}
-      EPROC_TJRS_PASSWORD: ${EPROC_TJRS_PASSWORD}
-      EPROC_TJRS_TOTP_SEED: ${EPROC_TJRS_TOTP_SEED}
-    volumes:
-      - archive:/app/storage/archive
-    command: ["npx", "tsx", "src/scripts/pipeline-watch.ts"]
-    networks:
-      - internal
-
 volumes:
   pgdata_v6:
   archive:
