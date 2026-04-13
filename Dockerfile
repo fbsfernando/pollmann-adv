@@ -23,6 +23,14 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# Usa CA certificates do sistema (necessário para validar cert do TJRS via Cloudflare)
+ENV NODE_OPTIONS=--use-openssl-ca
+
+# Instala ca-certificates para o OpenSSL do Node encontrar as CAs
+RUN apt-get update -qq \
+ && apt-get install -y -qq --no-install-recommends ca-certificates \
+ && update-ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system --gid 1001 nodejs \
  && useradd --system --uid 1001 --gid nodejs nextjs --create-home
