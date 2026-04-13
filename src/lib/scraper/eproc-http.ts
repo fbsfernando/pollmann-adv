@@ -17,6 +17,7 @@
  */
 
 import { setTimeout as sleep } from 'node:timers/promises'
+import { ProxyAgent, type Dispatcher } from 'undici'
 import { TOTP } from 'otpauth'
 import * as cheerio from 'cheerio'
 
@@ -38,6 +39,12 @@ export interface EprocHttpConfig {
   timeout?: number
   /** Delay em ms entre consultas de processos (default 2000) */
   interProcessoDelayMs?: number
+  /**
+   * URL do proxy HTTP para rotear as requisições.
+   * Ex: http://user:pass@host:port
+   * Necessário para TJRS quando o IP do servidor está bloqueado pelo Cloudflare.
+   */
+  proxyUrl?: string
 }
 
 const BASE_URLS: Record<Tribunal, string> = {
@@ -87,6 +94,8 @@ const parseEprocDate = (raw: string): string | null => {
 
 class CookieJar {
   private cookies = new Map<string, string>()
+  /** Dispatcher compartilhado (ProxyAgent) para propagar proxy em todas as requisições */
+  public dispatcher?: Dispatcher
 
   /** Extrai Set-Cookie headers de um Response e armazena */
   capture(response: Response): void {
@@ -119,11 +128,13 @@ type FetchOpts = {
   redirect?: RequestRedirect
   contentType?: string
   referer?: string
+  dispatcher?: Dispatcher
 }
 
 /**
  * HTTP request com follow manual de redirects para capturar cookies em cada hop.
  * O `fetch` nativo com `redirect: 'follow'` perde Set-Cookie de respostas intermediárias.
+ * Suporta dispatcher customizado (ProxyAgent) via opts.dispatcher.
  */
 async function httpRequest(
   url: string,
@@ -150,13 +161,21 @@ async function httpRequest(
       headers['Content-Type'] = opts.contentType ?? 'application/x-www-form-urlencoded'
     }
 
-    const response = await fetch(currentUrl, {
+    // fetchOptions inclui dispatcher quando há proxy configurado no cookie jar
+    // (undici suporta dispatcher via RequestInit, mas o tipo de fetch nativo não)
+    const fetchOptions: RequestInit & { dispatcher?: Dispatcher } = {
       method: currentMethod,
       headers,
       body: currentBody,
       redirect: 'manual',
       signal: AbortSignal.timeout(opts.timeout),
-    })
+    }
+    const dispatcher = opts.dispatcher ?? opts.cookies.dispatcher
+    if (dispatcher) {
+      fetchOptions.dispatcher = dispatcher
+    }
+
+    const response = await fetch(currentUrl, fetchOptions)
 
     opts.cookies.capture(response)
 
@@ -243,6 +262,12 @@ async function authenticate(config: EprocHttpConfig): Promise<AuthSession> {
   const timeout = config.timeout ?? 30000
   const cookies = new CookieJar()
   const baseUrl = BASE_URLS[config.tribunal]
+
+  // Configura proxy (necessário para TJRS quando IP do servidor está bloqueado pelo Cloudflare)
+  if (config.proxyUrl) {
+    cookies.dispatcher = new ProxyAgent(config.proxyUrl)
+    console.log(`[EPROC-HTTP] Usando proxy: ${config.proxyUrl.replace(/:\/\/[^@]+@/, '://***@')}`)
+  }
 
   console.log(`[EPROC-HTTP] Iniciando login no ${config.tribunal}...`)
 

@@ -16,6 +16,8 @@ export const run = async (): Promise<number> => {
     const tribunal = (process.env.EPROC_TRIBUNAL ?? 'TJSC') as Tribunal
     const archiveBaseDir = process.env.PIPELINE_ARCHIVE_DIR ?? './storage/archive'
 
+    const proxyUrl = process.env[`EPROC_${tribunal}_PROXY_URL`] ?? process.env.EPROC_PROXY_URL
+
     const scraperConfig = {
       tribunal,
       usuario: getEnv(`EPROC_${tribunal}_USER`),
@@ -23,6 +25,7 @@ export const run = async (): Promise<number> => {
       totpSeed: getEnv(`EPROC_${tribunal}_TOTP_SEED`),
       timeout: 45000,
       interProcessoDelayMs: Number(process.env.EPROC_INTER_PROCESSO_DELAY_MS ?? 2000),
+      proxyUrl: proxyUrl || undefined,
     }
 
     const client = createEprocHttpClient(scraperConfig)

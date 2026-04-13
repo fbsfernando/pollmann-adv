@@ -118,6 +118,10 @@ async function main() {
   console.log(`Usuário: ${usuario}`)
   console.log(`Destino: ${OUTPUT_PATH}\n`)
 
+  // Proxy específico por tribunal (útil quando um tribunal está atrás de Cloudflare
+  // bloqueando o IP do servidor, como o TJRS em VPS de datacenter)
+  const proxyUrl = process.env[`EPROC_${TRIBUNAL}_PROXY_URL`] ?? process.env.EPROC_PROXY_URL
+
   const client = createEprocHttpClient({
     tribunal: TRIBUNAL,
     usuario,
@@ -125,6 +129,7 @@ async function main() {
     totpSeed,
     timeout: 45000,
     interProcessoDelayMs: Number(process.env.EPROC_INTER_PROCESSO_DELAY_MS ?? 2000),
+    proxyUrl: proxyUrl || undefined,
   })
 
   console.log('[1/3] Coletando andamentos do E-PROC...')
