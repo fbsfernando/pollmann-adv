@@ -5,7 +5,14 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
 
-RUN npm ci --ignore-scripts && npx prisma generate
+# Reduz consumo de memória do npm ci:
+# - max-old-space-size limita heap V8 a 1.5GB (evita OOM em VPS com RAM apertada)
+# - --no-audit, --no-fund, --prefer-offline aceleram e reduzem I/O
+# - --maxsockets=5 limita conexões paralelas
+ENV NODE_OPTIONS=--max-old-space-size=1536
+RUN npm config set maxsockets 5 \
+ && npm ci --ignore-scripts --no-audit --no-fund --prefer-offline \
+ && npx prisma generate
 
 # ── Stage 2: builder ─────────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS builder
@@ -15,6 +22,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
+# Limita memória do Next.js build para evitar OOM em VPS
+ENV NODE_OPTIONS=--max-old-space-size=2048
 RUN npm run build
 
 # ── Stage 3: runner ──────────────────────────────────────────────────────────
