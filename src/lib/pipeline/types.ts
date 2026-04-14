@@ -19,10 +19,37 @@ export type ExternalAndamentoInput = {
   documentos?: ExternalDocumentoInput[]
 }
 
+/** Parte do processo (Autor ou Réu) extraída da página de detalhes do E-PROC */
+export type ExternalPartePessoa = {
+  nome: string
+  cpfCnpj?: string
+  tipoPessoa?: 'FISICA' | 'JURIDICA'
+  polo: 'AUTOR' | 'REU'
+  /** Códigos OAB dos advogados representantes (ex: ['SC037270']) */
+  advogadosOab?: string[]
+}
+
+/** Metadados do processo raspados da capa e partes */
+export type ExternalProcessoMetadata = {
+  numero: string
+  /** Classe da ação (ex: "CUMPRIMENTO DE SENTENÇA") */
+  classe?: string
+  /** Competência (ex: "Civil - Bancário") */
+  area?: string
+  /** Órgão julgador / vara */
+  vara?: string
+  /** Situação atual (ex: "MOVIMENTO-AGUARDA SENTENÇA") */
+  situacao?: string
+  /** Partes do processo */
+  partes: ExternalPartePessoa[]
+}
+
 export type ScraperSnapshot = {
   source: 'eproc'
   collectedAtIso: string
   andamentos: ExternalAndamentoInput[]
+  /** Metadados por processo (chave = número CNJ). Opcional para compat. */
+  processosMetadata?: Record<string, ExternalProcessoMetadata>
 }
 
 export type NormalizedDocumento = {

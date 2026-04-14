@@ -59,11 +59,48 @@ type InputProcesso = {
   numero: string
   tribunal: string
   status: 'ATIVO'
-  cliente: { nome: string }
+  area?: string
+  vara?: string
+  observacoes?: string
+  cliente: {
+    nome: string
+    cpfCnpj?: string
+  }
   andamentos: InputAndamento[]
 }
 
-function snapshotToAcervo(snapshot: ScraperSnapshot, tribunal: Tribunal): { processos: InputProcesso[] } {
+/**
+ * Identifica a parte "cliente do escritório" dentre as partes do processo.
+ *
+ * Critério: a parte cujos advogados representantes incluem o OAB do usuário
+ * logado (passado em `userOab`). Se nenhuma parte bater, usa a primeira parte
+ * como fallback (melhor que ter "Cliente do processo X" genérico).
+ */
+function identificarClienteDoEscritorio(
+  metadata: import('@/lib/pipeline/types').ExternalProcessoMetadata | undefined,
+  userOab: string | null,
+): { nome: string; cpfCnpj?: string } {
+  if (!metadata?.partes?.length) {
+    return { nome: `Cliente do processo ${metadata?.numero ?? 'desconhecido'}` }
+  }
+
+  // Procura uma parte cuja lista de advogados contenha o OAB do usuário
+  if (userOab) {
+    const upper = userOab.toUpperCase()
+    const hit = metadata.partes.find(p => p.advogadosOab?.some(o => o.toUpperCase() === upper))
+    if (hit) return { nome: hit.nome, cpfCnpj: hit.cpfCnpj }
+  }
+
+  // Fallback: primeira parte (geralmente o réu, que costuma ser o cliente do advogado)
+  const first = metadata.partes[0]
+  return { nome: first.nome, cpfCnpj: first.cpfCnpj }
+}
+
+function snapshotToAcervo(
+  snapshot: ScraperSnapshot,
+  tribunal: Tribunal,
+  userOab: string | null,
+): { processos: InputProcesso[] } {
   // Agrupa andamentos por processo
   const byProcesso = new Map<string, ExternalAndamentoInput[]>()
 
@@ -74,20 +111,25 @@ function snapshotToAcervo(snapshot: ScraperSnapshot, tribunal: Tribunal): { proc
   }
 
   const processos: InputProcesso[] = []
+  const allNumeros = new Set<string>([
+    ...byProcesso.keys(),
+    ...Object.keys(snapshot.processosMetadata ?? {}),
+  ])
 
-  for (const [numero, andamentos] of byProcesso) {
+  for (const numero of allNumeros) {
+    const andamentos = byProcesso.get(numero) ?? []
+    const metadata = snapshot.processosMetadata?.[numero]
     const tribunalInferido = inferTribunal(numero, tribunal)
+    const cliente = identificarClienteDoEscritorio(metadata, userOab)
 
     processos.push({
       numero,
       tribunal: tribunalInferido,
       status: 'ATIVO',
-      // Nome do cliente desconhecido neste ponto — será preenchido como placeholder
-      // O importador aceita nome como campo obrigatório; pode ser atualizado depois
-      // via Astrea ou manualmente no dashboard
-      cliente: {
-        nome: `Cliente do processo ${numero}`,
-      },
+      area: metadata?.area,
+      vara: metadata?.vara,
+      observacoes: metadata?.classe ? `Classe: ${metadata.classe}` : undefined,
+      cliente,
       andamentos: andamentos.map(a => ({
         dataIso: a.dataIso,
         tipo: a.tipo,
@@ -138,7 +180,10 @@ async function main() {
   console.log(`[1/3] Coletado: ${snapshot.andamentos.length} andamentos`)
 
   console.log('[2/3] Convertendo para formato de importação...')
-  const payload = snapshotToAcervo(snapshot, TRIBUNAL)
+  // OAB do usuário logado — usado para identificar qual parte do processo é
+  // o cliente do escritório (a parte que tem esse OAB como advogado representante)
+  const userOab = process.env[`EPROC_${TRIBUNAL}_OAB`] ?? usuario
+  const payload = snapshotToAcervo(snapshot, TRIBUNAL, userOab)
 
   console.log(`[2/3] Convertido: ${payload.processos.length} processos`)
 

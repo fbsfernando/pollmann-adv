@@ -22,7 +22,13 @@ import { TOTP } from 'otpauth'
 import * as cheerio from 'cheerio'
 
 import type { EprocClient } from '@/lib/scraper/eproc-client'
-import type { ExternalAndamentoInput, ExternalDocumentoInput, ScraperSnapshot } from '@/lib/pipeline/types'
+import type {
+  ExternalAndamentoInput,
+  ExternalDocumentoInput,
+  ExternalPartePessoa,
+  ExternalProcessoMetadata,
+  ScraperSnapshot,
+} from '@/lib/pipeline/types'
 
 // ─── Configuração ────────────────────────────────────────────────────────────
 
@@ -531,6 +537,80 @@ function extrairAndamentosDoHtml(
   return { andamentos, docRefs }
 }
 
+// ─── Extração de metadados do processo (capa e partes) ───────────────────────
+
+/**
+ * Extrai dados da capa do processo (classe, vara, situação) e lista de partes
+ * (autor, réu, CPF/CNPJ, tipo pessoa, advogados OAB).
+ *
+ * Labels relevantes no HTML do E-PROC:
+ *  - #txtNumProcesso, #txtClasse, #txtCompetencia, #txtOrgaoJulgador, #txtSituacao
+ *  - #tblPartesERepresentantes com linhas td.autorReu contendo:
+ *    - a.infraNomeParte[data-parte=AUTOR|REU] → nome
+ *    - span[id^=spnCpfParte] → CPF/CNPJ
+ *    - span[id^=spanDesTipoPessoa] → "- Pessoa Física|Jurídica"
+ *    - texto solto com "NOME ADVOGADO UFxxxxx" → advogados
+ */
+function extrairMetadataDoProcesso(html: string, processoNumero: string): ExternalProcessoMetadata {
+  const $ = cheerio.load(html)
+
+  const classe = $('#txtClasse').text().trim() || undefined
+  const area = $('#txtCompetencia').text().trim() || undefined
+  const vara = $('#txtOrgaoJulgador').text().trim() || undefined
+  const situacao = $('#txtSituacao').text().trim() || undefined
+
+  const partes: ExternalPartePessoa[] = []
+
+  // Itera sobre cada TD de parte na tabela de partes/representantes
+  $('#tblPartesERepresentantes td.autorReu').each((_, td) => {
+    const $td = $(td)
+    const $nome = $td.find('a.infraNomeParte').first()
+    if (!$nome.length) return
+
+    const nome = $nome.text().trim()
+    const poloRaw = ($nome.attr('data-parte') ?? '').toUpperCase()
+    const polo: 'AUTOR' | 'REU' = poloRaw === 'REU' ? 'REU' : 'AUTOR'
+
+    // CPF/CNPJ — primeiro span com id começando por spnCpfParte
+    const cpfCnpjRaw = $td.find('span[id^="spnCpfParte"]').first().text().trim()
+    const cpfCnpj = cpfCnpjRaw ? cpfCnpjRaw.replace(/\s+/g, '') : undefined
+
+    // Tipo pessoa — span[id^=spanDesTipoPessoa] contém "- Pessoa Física" ou "- Pessoa Jurídica"
+    const tipoRaw = $td.find('span[id^="spanDesTipoPessoa"]').first().text().trim().toLowerCase()
+    let tipoPessoa: 'FISICA' | 'JURIDICA' | undefined
+    if (tipoRaw.includes('jurídica') || tipoRaw.includes('juridica')) tipoPessoa = 'JURIDICA'
+    else if (tipoRaw.includes('física') || tipoRaw.includes('fisica')) tipoPessoa = 'FISICA'
+    else if (cpfCnpj) tipoPessoa = cpfCnpj.replace(/\D/g, '').length === 14 ? 'JURIDICA' : 'FISICA'
+
+    // Advogados — procura padrão "NOME EM CAIXA ALTA" seguido de "UFdddddd"
+    // Ex: "MILTON BACCIN   SC005113"
+    const rawText = $td.text().replace(/\s+/g, ' ').trim()
+    const advRegex = /\b([A-ZÁÉÍÓÚÂÊÔÀÃÕÇ][A-ZÁÉÍÓÚÂÊÔÀÃÕÇ\s.]+?)\s+((?:SC|SP|RJ|MG|PR|RS|BA|GO|MT|MS|ES|SE|AL|PB|PE|RN|CE|PI|MA|PA|AM|RO|RR|AP|AC|TO|DF)\d{4,7})/g
+    const advogadosOab: string[] = []
+    let m: RegExpExecArray | null
+    while ((m = advRegex.exec(rawText)) !== null) {
+      advogadosOab.push(m[2])
+    }
+
+    partes.push({
+      nome,
+      cpfCnpj,
+      tipoPessoa,
+      polo,
+      advogadosOab: advogadosOab.length ? advogadosOab : undefined,
+    })
+  })
+
+  return {
+    numero: processoNumero,
+    classe,
+    area,
+    vara,
+    situacao,
+    partes,
+  }
+}
+
 // ─── Paginação de eventos ────────────────────────────────────────────────────
 
 /**
@@ -668,6 +748,7 @@ export function createEprocHttpClient(config: EprocHttpConfig): EprocClient & {
   async function coletarAndamentos(session: AuthSession): Promise<{
     andamentos: ExternalAndamentoInput[]
     allDocRefs: Map<string, string>
+    processosMetadata: Record<string, ExternalProcessoMetadata>
   }> {
     let processoRefs = await listarProcessos(session, timeout)
 
@@ -683,6 +764,7 @@ export function createEprocHttpClient(config: EprocHttpConfig): EprocClient & {
 
     const andamentos: ExternalAndamentoInput[] = []
     const allDocRefs = new Map<string, string>()
+    const processosMetadata: Record<string, ExternalProcessoMetadata> = {}
 
     for (let i = 0; i < processoRefs.length; i++) {
       const ref = processoRefs[i]
@@ -705,6 +787,9 @@ export function createEprocHttpClient(config: EprocHttpConfig): EprocClient & {
             timeout: attemptTimeout,
           })
 
+          // Extrai metadados do processo (capa + partes) do HTML inicial
+          processosMetadata[ref.numero] = extrairMetadataDoProcesso(html, ref.numero)
+
           // Busca páginas adicionais de eventos (paginação AJAX do E-PROC)
           const fullHtml = await fetchAllEventPages(html, ref.link, session.cookies, attemptTimeout)
 
@@ -713,7 +798,7 @@ export function createEprocHttpClient(config: EprocHttpConfig): EprocClient & {
           for (const [k, v] of docRefs) {
             if (v) allDocRefs.set(k, v)
           }
-          console.log(`[EPROC-HTTP]   → ${processoAndamentos.length} andamento(s)`)
+          console.log(`[EPROC-HTTP]   → ${processoAndamentos.length} andamento(s), ${processosMetadata[ref.numero].partes.length} parte(s)`)
           lastError = null
           break
         } catch (err) {
@@ -731,21 +816,21 @@ export function createEprocHttpClient(config: EprocHttpConfig): EprocClient & {
       }
     }
 
-    return { andamentos, allDocRefs }
+    return { andamentos, allDocRefs, processosMetadata }
   }
 
   return {
     async collectSnapshot(): Promise<ScraperSnapshot> {
       const session = await authenticate(config)
-      const { andamentos } = await coletarAndamentos(session)
-      return { source: 'eproc', collectedAtIso: new Date().toISOString(), andamentos }
+      const { andamentos, processosMetadata } = await coletarAndamentos(session)
+      return { source: 'eproc', collectedAtIso: new Date().toISOString(), andamentos, processosMetadata }
     },
 
     async collectSnapshotWithDocuments(
       isDocumentKnown: (externalId: string) => Promise<boolean>
     ): Promise<ScraperSnapshot> {
       const session = await authenticate(config)
-      const { andamentos, allDocRefs } = await coletarAndamentos(session)
+      const { andamentos, allDocRefs, processosMetadata } = await coletarAndamentos(session)
 
       let downloaded = 0
       let skipped = 0
@@ -776,7 +861,7 @@ export function createEprocHttpClient(config: EprocHttpConfig): EprocClient & {
       }
 
       console.log(`[EPROC-HTTP] Documentos: ${downloaded} baixados, ${skipped} já arquivados, ${failed} falhas`)
-      return { source: 'eproc', collectedAtIso: new Date().toISOString(), andamentos }
+      return { source: 'eproc', collectedAtIso: new Date().toISOString(), andamentos, processosMetadata }
     },
   }
 }
