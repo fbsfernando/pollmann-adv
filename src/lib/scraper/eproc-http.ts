@@ -735,6 +735,102 @@ async function downloadDocument(
   }
 }
 
+// ─── Funções públicas de ação pontual (substituem Playwright) ───────────────
+
+/**
+ * Resolve o link direto (com hash de sessão CSRF) de um processo no E-PROC.
+ * Usado pelo endpoint /api/processos/[id]/eproc-link para abrir o processo
+ * em nova aba no navegador do usuário.
+ *
+ * Faz login, lista os processos do painel e procura pelo número informado.
+ * Retorna null se o processo não estiver na relação do advogado.
+ */
+export async function resolveEprocProcessLink(
+  config: EprocHttpConfig,
+  processoNumero: string
+): Promise<string | null> {
+  const session = await authenticate(config)
+  const refs = await listarProcessos(session, config.timeout ?? 30000)
+  return refs.find(r => r.numero === processoNumero)?.link ?? null
+}
+
+/**
+ * Baixa um documento específico do E-PROC via HTTP autenticado.
+ * Usado pelo endpoint /api/documentos/[id]/download quando o arquivo
+ * não está no acervo local.
+ *
+ * Estratégia:
+ *  1. Autentica
+ *  2. Resolve o link do processo (para obter hash de sessão)
+ *  3. Busca o link do documento na página do processo via parâmetro `doc=`
+ *  4. Baixa o binário direto
+ */
+export async function downloadEprocDocument(
+  config: EprocHttpConfig,
+  documentoExternalId: string,
+  processoNumero?: string
+): Promise<{ content: Buffer; contentType: string; filename: string } | null> {
+  const timeout = config.timeout ?? 45000
+  const session = await authenticate(config)
+
+  // Se temos o número do processo, navegamos para a página dele primeiro
+  // para obter o link do documento com o hash correto
+  if (processoNumero) {
+    const refs = await listarProcessos(session, timeout)
+    const ref = refs.find(r => r.numero === processoNumero)
+    if (!ref) {
+      console.warn(`[EPROC-HTTP] Processo ${processoNumero} não encontrado no painel`)
+      return null
+    }
+
+    // Pega a página do processo e extrai o href do documento
+    const { html } = await httpRequest(ref.link, { cookies: session.cookies, timeout })
+    const $ = cheerio.load(html)
+
+    // externalId vem como href relativo tipo "controlador.php?acao=acessar_documento&...&doc=XXX"
+    // Extrai o parâmetro doc= para localizar o link correto
+    let docParam = ''
+    try {
+      const u = new URL(`https://placeholder/${documentoExternalId}`)
+      docParam = u.searchParams.get('doc') ?? ''
+    } catch {
+      // externalId pode ser um href relativo simples
+      const m = documentoExternalId.match(/[?&]doc=([^&]+)/)
+      if (m) docParam = m[1]
+    }
+
+    if (!docParam) {
+      console.warn(`[EPROC-HTTP] Parâmetro doc não encontrado em ${documentoExternalId.slice(0, 80)}`)
+      return null
+    }
+
+    // Encontra o link do documento com o hash válido na página do processo
+    let docUrl: string | null = null
+    $('a[href*="acessar_documento"]').each((_, el) => {
+      const href = $(el).attr('href') ?? ''
+      if (href.includes(docParam) && !docUrl) {
+        docUrl = href.startsWith('http') ? href : new URL(href, ref.link).href
+      }
+    })
+
+    if (!docUrl) {
+      console.warn(`[EPROC-HTTP] Link do documento não encontrado na página do processo`)
+      return null
+    }
+
+    const result = await downloadDocument(docUrl, session.cookies, timeout)
+    if (!result) return null
+
+    return {
+      content: result.content,
+      contentType: 'application/pdf',
+      filename: result.filename,
+    }
+  }
+
+  return null
+}
+
 // ─── Client público ──────────────────────────────────────────────────────────
 
 export function createEprocHttpClient(config: EprocHttpConfig): EprocClient & {

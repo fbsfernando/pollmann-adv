@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { requireAuth } from "@/lib/auth/guards"
+import { Role } from "@prisma/client"
 
 const clienteSchema = z.object({
   nome: z.string().min(2, "Nome é obrigatório"),
@@ -15,17 +16,19 @@ const clienteSchema = z.object({
 
 export async function getClientes(search?: string) {
   await requireAuth()
-  const where = search
+  const safeSearch = search?.slice(0, 100)
+  const where = safeSearch
     ? {
         OR: [
-          { nome: { contains: search, mode: "insensitive" as const } },
-          { cpfCnpj: { contains: search, mode: "insensitive" as const } },
+          { nome: { contains: safeSearch, mode: "insensitive" as const } },
+          { cpfCnpj: { contains: safeSearch, mode: "insensitive" as const } },
         ],
       }
     : {}
 
   return prisma.cliente.findMany({
     where,
+    take: 500,
     orderBy: { nome: "asc" },
     include: {
       _count: { select: { processos: true } },
@@ -34,14 +37,18 @@ export async function getClientes(search?: string) {
 }
 
 export async function getCliente(id: string) {
-  await requireAuth()
+  const session = await requireAuth()
+
+  // Advogados só veem os processos que lhes pertencem dentro do cliente
+  const processosFilter =
+    session.user.role === Role.ADVOGADO
+      ? { where: { advogadoId: session.user.id }, include: { advogado: true }, orderBy: { createdAt: "desc" as const } }
+      : { include: { advogado: true }, orderBy: { createdAt: "desc" as const } }
+
   return prisma.cliente.findUnique({
     where: { id },
     include: {
-      processos: {
-        include: { advogado: true },
-        orderBy: { createdAt: "desc" },
-      },
+      processos: processosFilter,
     },
   })
 }

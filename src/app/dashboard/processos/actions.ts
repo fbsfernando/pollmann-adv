@@ -29,9 +29,10 @@ export async function getProcessos(filters?: {
   const where: Prisma.ProcessoWhereInput = {}
 
   if (filters?.search) {
+    const search = filters.search.slice(0, 100)
     where.OR = [
-      { numero: { contains: filters.search, mode: "insensitive" } },
-      { cliente: { nome: { contains: filters.search, mode: "insensitive" } } },
+      { numero: { contains: search, mode: "insensitive" } },
+      { cliente: { nome: { contains: search, mode: "insensitive" } } },
     ]
   }
   if (filters?.tribunal) where.tribunal = filters.tribunal as Tribunal
@@ -47,6 +48,7 @@ export async function getProcessos(filters?: {
 
   return prisma.processo.findMany({
     where,
+    take: 500,
     orderBy: { updatedAt: "desc" },
     include: {
       cliente: true,

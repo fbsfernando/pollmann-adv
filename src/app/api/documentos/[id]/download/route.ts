@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import { requireAuth } from '@/lib/auth/guards'
 import { prisma } from '@/lib/db'
-import { downloadEprocDocument } from '@/lib/scraper/eproc-playwright'
+import { downloadEprocDocument } from '@/lib/scraper/eproc-http'
 import { archiveDocument } from '@/lib/storage/document-archive'
 
 const getEnv = (key: string): string => {
@@ -37,7 +37,11 @@ export async function GET(
 
   // ── 1. Serve do acervo local se já arquivado ────────────────────────────────
   if (doc.storagePath && !doc.storagePath.startsWith('eproc/')) {
+    const resolvedBase = path.resolve(ARCHIVE_BASE)
     const absolutePath = path.resolve(ARCHIVE_BASE, doc.storagePath)
+    if (!absolutePath.startsWith(resolvedBase + path.sep) && absolutePath !== resolvedBase) {
+      return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
+    }
     const fileBuffer = await readFile(absolutePath).catch(() => null)
 
     if (fileBuffer) {
@@ -76,8 +80,8 @@ export async function GET(
         usuario: getEnv(`EPROC_${tribunal}_USER`),
         senha: getEnv(`EPROC_${tribunal}_PASSWORD`),
         totpSeed: getEnv(`EPROC_${tribunal}_TOTP_SEED`),
-        headless: true,
         timeout: 60000,
+        proxyUrl: process.env[`EPROC_${tribunal}_PROXY_URL`] ?? process.env.EPROC_PROXY_URL,
       },
       doc.externalId,
       doc.processo.numero

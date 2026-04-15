@@ -3,7 +3,7 @@ import { Tribunal } from '@prisma/client'
 
 import { requireAuth } from '@/lib/auth/guards'
 import { prisma } from '@/lib/db'
-import { resolveEprocProcessLink } from '@/lib/scraper/eproc-playwright'
+import { resolveEprocProcessLink } from '@/lib/scraper/eproc-http'
 
 const getEnv = (key: string): string => {
   const value = process.env[key]
@@ -44,8 +44,8 @@ export async function GET(
         usuario: getEnv(`EPROC_${tribunal}_USER`),
         senha: getEnv(`EPROC_${tribunal}_PASSWORD`),
         totpSeed: getEnv(`EPROC_${tribunal}_TOTP_SEED`),
-        headless: true,
         timeout: 45000,
+        proxyUrl: process.env[`EPROC_${tribunal}_PROXY_URL`] ?? process.env.EPROC_PROXY_URL,
       },
       processo.numero
     )

@@ -2,14 +2,22 @@ import { NextRequest, NextResponse } from 'next/server'
 import { PrismaClient } from '@prisma/client'
 import { spawn } from 'child_process'
 
+const ALLOWED_TRIBUNAIS = new Set(['TJSC', 'TJRS'])
+
 export async function POST(req: NextRequest) {
-  if (req.headers.get('x-load-secret') !== process.env.LOAD_SECRET) {
+  const secret = process.env.LOAD_SECRET
+  if (!secret || req.headers.get('x-load-secret') !== secret) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const url = new URL(req.url)
   const force = url.searchParams.get('force') === 'true'
-  const tribunal = url.searchParams.get('tribunal')?.toUpperCase() // TJSC, TJRS ou null (ambos)
+  const rawTribunal = url.searchParams.get('tribunal')?.toUpperCase()
+  const tribunal = rawTribunal ?? null
+
+  if (tribunal !== null && !ALLOWED_TRIBUNAIS.has(tribunal)) {
+    return NextResponse.json({ error: 'Parâmetro tribunal inválido. Use TJSC, TJRS ou omita.' }, { status: 400 })
+  }
 
   const p = new PrismaClient()
   const count = await p.cliente.count()
