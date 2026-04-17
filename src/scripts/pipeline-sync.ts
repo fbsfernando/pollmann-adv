@@ -18,6 +18,17 @@ export const run = async (): Promise<number> => {
 
     const proxyUrl = process.env[`EPROC_${tribunal}_PROXY_URL`] ?? process.env.EPROC_PROXY_URL
 
+    // Busca processos INATIVOS do banco para excluir do scraping (economia de tempo
+    // e respeito ao pedido do Richard: só monitorar processos ativos).
+    const inativos = await prisma.processo.findMany({
+      where: { tribunal, status: { not: 'ATIVO' } },
+      select: { numero: true },
+    })
+    const excludeProcessos = inativos.map((p) => p.numero)
+    if (excludeProcessos.length > 0) {
+      console.info(`[pipeline:sync] ignorando ${excludeProcessos.length} processo(s) inativo(s) em ${tribunal}`)
+    }
+
     const scraperConfig = {
       tribunal,
       usuario: getEnv(`EPROC_${tribunal}_USER`),
@@ -26,6 +37,7 @@ export const run = async (): Promise<number> => {
       timeout: 45000,
       interProcessoDelayMs: Number(process.env.EPROC_INTER_PROCESSO_DELAY_MS ?? 2000),
       proxyUrl: proxyUrl || undefined,
+      excludeProcessos,
     }
 
     const client = createEprocHttpClient(scraperConfig)
