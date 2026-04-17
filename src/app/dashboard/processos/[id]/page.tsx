@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation"
 import { getProcesso } from "../actions"
 import { EditProcessoButton } from "../components/processo-form"
+import { SyncProcessoButton } from "../components/sync-processo-button"
 import { StatusBadge } from "@/components/status-badge"
 import Link from "next/link"
 import {
@@ -69,15 +70,18 @@ export default async function ProcessoDetailPage({
 
         <div className="flex items-center gap-2 shrink-0">
           {(processo.tribunal === "TJSC" || processo.tribunal === "TJRS") && (
-            <a
-              href={`/api/processos/${processo.id}/eproc-link`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              E-PROC
-            </a>
+            <>
+              <SyncProcessoButton processoId={processo.id} />
+              <a
+                href={`/api/processos/${processo.id}/eproc-link`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-background text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                E-PROC
+              </a>
+            </>
           )}
           <EditProcessoButton processo={processo} />
         </div>

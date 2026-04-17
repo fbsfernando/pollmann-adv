@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { requireAuth } from "@/lib/auth/guards"
 import { Tribunal, StatusProcesso, Role, Prisma } from "@prisma/client"
+import { createEprocHttpClient, type Tribunal as ScraperTribunal } from "@/lib/scraper/eproc-http"
+import { syncAndamentos } from "@/lib/pipeline/sync-andamentos"
 
 const processoSchema = z.object({
   numero: z.string().min(5, "Número do processo é obrigatório"),
@@ -134,6 +136,98 @@ export async function createProcesso(formData: FormData) {
       return { error: "Número de processo já cadastrado" }
     }
     return { error: "Erro ao criar processo" }
+  }
+}
+
+const syncInFlight = new Set<string>()
+
+function getEnvOrThrow(key: string): string {
+  const v = process.env[key]
+  if (!v) throw new Error(`Variável de ambiente ausente: ${key}`)
+  return v
+}
+
+export async function syncProcessoAgora(id: string): Promise<
+  | { success: true; newAndamentos: number; newDocumentos: number }
+  | { error: string }
+> {
+  const session = await requireAuth()
+  const processoId = id.trim()
+  if (!processoId) return { error: "Processo inválido" }
+
+  const processo = await prisma.processo.findUnique({
+    where: { id: processoId },
+    select: { id: true, numero: true, tribunal: true, advogadoId: true },
+  })
+
+  if (!processo) return { error: "Processo não encontrado" }
+
+  if (
+    session.user.role === Role.ADVOGADO &&
+    processo.advogadoId !== session.user.id
+  ) {
+    return { error: "Acesso negado" }
+  }
+
+  if (processo.tribunal !== "TJSC" && processo.tribunal !== "TJRS") {
+    return { error: "Sincronização disponível apenas para TJSC e TJRS" }
+  }
+
+  if (syncInFlight.has(processoId)) {
+    return { error: "Sincronização já em andamento para este processo" }
+  }
+  syncInFlight.add(processoId)
+
+  try {
+    const tribunal = processo.tribunal as ScraperTribunal
+    const archiveBaseDir = process.env.PIPELINE_ARCHIVE_DIR ?? "./storage/archive"
+    const proxyUrl =
+      process.env[`EPROC_${tribunal}_PROXY_URL`] ?? process.env.EPROC_PROXY_URL
+
+    const client = createEprocHttpClient({
+      tribunal,
+      usuario: getEnvOrThrow(`EPROC_${tribunal}_USER`),
+      senha: getEnvOrThrow(`EPROC_${tribunal}_PASSWORD`),
+      totpSeed: getEnvOrThrow(`EPROC_${tribunal}_TOTP_SEED`),
+      timeout: 45000,
+      interProcessoDelayMs: 0,
+      proxyUrl: proxyUrl || undefined,
+      processos: [processo.numero],
+    })
+
+    const isDocumentKnown = async (externalId: string): Promise<boolean> => {
+      const doc = await prisma.documento.findUnique({
+        where: { externalId },
+        select: { storagePath: true },
+      })
+      return !!(doc?.storagePath && !doc.storagePath.startsWith("eproc/"))
+    }
+
+    const snapshot = await client.collectSnapshotWithDocuments(isDocumentKnown)
+
+    const result = await syncAndamentos(
+      prisma,
+      { collectSnapshot: async () => snapshot },
+      { archiveBaseDir }
+    )
+
+    revalidatePath(`/dashboard/processos/${processoId}`)
+    revalidatePath("/dashboard/processos")
+
+    return {
+      success: true,
+      newAndamentos: result.phase.persistedAndamentos,
+      newDocumentos: result.phase.persistedDocumentos,
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "unknown-error"
+    if (msg.startsWith("PROCESSO_NAO_ENCONTRADO:")) {
+      return { error: "Processo não encontrado no E-PROC ou em segredo de justiça" }
+    }
+    console.error("[syncProcessoAgora] failed", { processoId, error: msg })
+    return { error: `Falha ao sincronizar: ${msg}` }
+  } finally {
+    syncInFlight.delete(processoId)
   }
 }
 

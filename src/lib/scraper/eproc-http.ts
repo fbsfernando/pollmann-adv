@@ -41,6 +41,8 @@ export interface EprocHttpConfig {
   totpSeed: string
   /** Números de processo a consultar. Se vazio, lista do painel. */
   processos?: string[]
+  /** Números de processo a ignorar (ex: inativos no banco). Aplicado após listar do painel. */
+  excludeProcessos?: string[]
   /** Timeout por operação em ms (default 30000) */
   timeout?: number
   /** Delay em ms entre consultas de processos (default 2000) */
@@ -484,6 +486,56 @@ async function listarProcessos(
   return refs
 }
 
+// ─── Consulta direta de processo público ─────────────────────────────────────
+
+/**
+ * Tenta acessar um processo diretamente pelo número CNJ, sem precisar que
+ * ele esteja na "Relação de Processos" do advogado.
+ *
+ * Útil para processos públicos (sem segredo de justiça) onde o advogado ainda
+ * não tem procuração cadastrada mas quer monitorar.
+ *
+ * Retorna { found: true } se o E-PROC exibir a tabela de eventos (#tblEventos).
+ * Retorna { found: false } se o processo estiver em segredo de justiça, não
+ * existir, ou a sessão não tiver permissão de visualização.
+ */
+async function consultarProcessoPorNumero(
+  session: AuthSession,
+  numero: string,
+  baseUrl: string,
+  timeout: number
+): Promise<{ found: true; html: string; link: string } | { found: false }> {
+  const url = new URL('controlador.php', baseUrl)
+  url.searchParams.set('acao', 'processo_selecionar')
+  url.searchParams.set('num_processo', numero)
+
+  try {
+    const { html } = await httpRequest(url.toString(), {
+      cookies: session.cookies,
+      timeout,
+    })
+
+    const $ = cheerio.load(html)
+
+    // Indicadores de que não obtivemos acesso ao processo
+    const temLogin = $('form#kc-form-login').length > 0 || $('input[name="txtUsuario"]').length > 0
+    const temSegredo = html.toLowerCase().includes('segredo de justiça')
+    const temEventos = $('#tblEventos').length > 0
+    const titulo = $('title').text().trim().slice(0, 80)
+
+    console.log(`[EPROC-HTTP] Consulta direta ${numero}: login=${temLogin} segredo=${temSegredo} tblEventos=${temEventos} title="${titulo}"`)
+
+    if (temLogin || temSegredo || !temEventos) {
+      return { found: false }
+    }
+
+    console.log(`[EPROC-HTTP] Processo ${numero} acessível via consulta direta (público)`)
+    return { found: true, html, link: url.toString() }
+  } catch {
+    return { found: false }
+  }
+}
+
 // ─── Extração de andamentos ──────────────────────────────────────────────────
 
 function extrairAndamentosDoHtml(
@@ -745,6 +797,58 @@ async function downloadDocument(
  * Faz login, lista os processos do painel e procura pelo número informado.
  * Retorna null se o processo não estiver na relação do advogado.
  */
+/**
+ * Lista todos os números CNJ de processos no painel do advogado.
+ * Usado principalmente para testes e diagnóstico.
+ */
+export async function listarNumerosProcessos(
+  config: EprocHttpConfig
+): Promise<{ numero: string; link: string }[]> {
+  const session = await authenticate(config)
+  const refs = await listarProcessos(session, config.timeout ?? 30000)
+  return refs.map(r => ({ numero: r.numero, link: r.link }))
+}
+
+/**
+ * Testa se um processo específico é acessível via consulta direta (sem hash).
+ * Autentica, lista o painel e — se o processo não estiver lá — tenta o endpoint
+ * direto com os cookies de sessão completos.
+ *
+ * Retorna:
+ *   'no_painel'   — processo está na relação do advogado
+ *   'publico'     — não está no painel mas é público (acessível diretamente)
+ *   'inacessivel' — não encontrado ou em segredo de justiça
+ */
+/**
+ * Testa múltiplos CNJs em uma única sessão autenticada (evita reuso de TOTP).
+ * Autentica uma vez, lista o painel e verifica cada número.
+ *
+ * Retorna um mapa: numero → 'no_painel' | 'publico' | 'inacessivel'
+ */
+export async function diagnosticarAcessoLote(
+  config: EprocHttpConfig,
+  numeros: string[]
+): Promise<Record<string, 'no_painel' | 'publico' | 'inacessivel'>> {
+  const timeout = config.timeout ?? 30000
+  const session = await authenticate(config)
+  const refs = await listarProcessos(session, timeout)
+  const noPanel = new Set(refs.map(r => r.numero))
+  const baseUrl = BASE_URLS[config.tribunal]
+
+  const resultado: Record<string, 'no_painel' | 'publico' | 'inacessivel'> = {}
+
+  for (const num of numeros) {
+    if (noPanel.has(num)) {
+      resultado[num] = 'no_painel'
+    } else {
+      const r = await consultarProcessoPorNumero(session, num, baseUrl, timeout)
+      resultado[num] = r.found ? 'publico' : 'inacessivel'
+    }
+  }
+
+  return resultado
+}
+
 export async function resolveEprocProcessLink(
   config: EprocHttpConfig,
   processoNumero: string
@@ -848,14 +952,38 @@ export function createEprocHttpClient(config: EprocHttpConfig): EprocClient & {
   }> {
     let processoRefs = await listarProcessos(session, timeout)
 
+    if (config.excludeProcessos && config.excludeProcessos.length > 0) {
+      const excluded = new Set(config.excludeProcessos)
+      const before = processoRefs.length
+      processoRefs = processoRefs.filter(r => !excluded.has(r.numero))
+      const removed = before - processoRefs.length
+      if (removed > 0) {
+        console.log(`[EPROC-HTTP] ${removed} processo(s) excluído(s) por filtro (inativos no banco)`)
+      }
+    }
+
     if (config.processos && config.processos.length > 0) {
       const numerosConfig = new Set(config.processos)
-      processoRefs = processoRefs.filter(r => numerosConfig.has(r.numero))
-      for (const num of config.processos) {
-        if (!processoRefs.find(r => r.numero === num)) {
-          console.warn(`[EPROC-HTTP] Processo ${num} não encontrado na relação — pulando`)
+      const found = processoRefs.filter(r => numerosConfig.has(r.numero))
+      const notInPanel = config.processos.filter(num => !found.find(r => r.numero === num))
+
+      for (const num of notInPanel) {
+        console.warn(`[EPROC-HTTP] Processo ${num} não está no painel — tentando consulta direta...`)
+        const resultado = await consultarProcessoPorNumero(
+          session,
+          num,
+          BASE_URLS[config.tribunal],
+          timeout
+        )
+        if (resultado.found) {
+          found.push({ numero: num, link: resultado.link })
+        } else {
+          console.warn(`[EPROC-HTTP] Processo ${num} não acessível via consulta direta`)
+          throw new Error(`PROCESSO_NAO_ENCONTRADO:${num}`)
         }
       }
+
+      processoRefs = found
     }
 
     const andamentos: ExternalAndamentoInput[] = []
