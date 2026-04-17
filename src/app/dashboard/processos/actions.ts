@@ -127,9 +127,32 @@ export async function createProcesso(formData: FormData) {
   }
 
   try {
-    await prisma.processo.create({ data: parsed.data })
+    const criado = await prisma.processo.create({
+      data: parsed.data,
+      select: { id: true, tribunal: true },
+    })
     revalidatePath("/dashboard/processos")
-    return { success: true }
+
+    // Sincronização imediata para TJSC/TJRS (reunião 13/04 — adicionar processo
+    // por número e já baixar documentos sem esperar ciclo de 6h).
+    if (criado.tribunal === "TJSC" || criado.tribunal === "TJRS") {
+      const sync = await syncProcessoAgora(criado.id)
+      if ("error" in sync) {
+        return {
+          success: true,
+          processoId: criado.id,
+          syncWarning: sync.error,
+        }
+      }
+      return {
+        success: true,
+        processoId: criado.id,
+        newAndamentos: sync.newAndamentos,
+        newDocumentos: sync.newDocumentos,
+      }
+    }
+
+    return { success: true, processoId: criado.id }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : ""
     if (msg.includes("Unique constraint") && msg.includes("numero")) {

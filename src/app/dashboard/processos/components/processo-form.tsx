@@ -70,12 +70,30 @@ export function ProcessoForm({ processo, trigger }: ProcessoFormProps) {
 
     setLoading(false)
 
-    if (result.error) {
+    if ("error" in result && result.error) {
       toast.error(result.error)
       return
     }
 
-    toast.success(isEditing ? "Processo atualizado" : "Processo criado")
+    if (isEditing) {
+      toast.success("Processo atualizado")
+    } else {
+      const r = result as {
+        syncWarning?: string
+        newAndamentos?: number
+        newDocumentos?: number
+      }
+      if (r.syncWarning) {
+        toast.success("Processo criado — sincronização pendente")
+        toast.warning(r.syncWarning)
+      } else if (typeof r.newAndamentos === "number") {
+        toast.success(
+          `Processo criado e sincronizado: ${r.newAndamentos} andamento(s), ${r.newDocumentos ?? 0} documento(s)`
+        )
+      } else {
+        toast.success("Processo criado")
+      }
+    }
     setOpen(false)
   }
 
