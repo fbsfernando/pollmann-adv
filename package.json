@@ -15,7 +15,8 @@
     "pipeline:watch": "tsx src/scripts/pipeline-watch.ts",
     "scraper:test": "tsx src/scripts/test-scraper.ts",
     "migrate:acervo": "tsx src/scripts/import-acervo.ts",
-    "scraper:acervo": "tsx src/scripts/scraper-to-acervo.ts"
+    "scraper:acervo": "tsx src/scripts/scraper-to-acervo.ts",
+    "diagnose:duplicates": "tsx src/scripts/diagnose-duplicates.ts"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"
