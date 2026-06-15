@@ -98,7 +98,7 @@ model Cliente {
 model Processo {
   id          String          @id @default(cuid())
   numero      String          @unique
-  tribunal    Tribunal
+  tribunal    String
   vara        String?
   area        String?
   status      StatusProcesso  @default(ATIVO)
@@ -118,18 +118,6 @@ model Processo {
   @@index([tribunal])
   @@index([status])
   @@map("processos")
-}
-
-enum Tribunal {
-  TJSC
-  TJRS
-  TJPR
-  TJSP
-  TJRJ
-  TJMG
-  TJGO
-  TJPA
-  OUTRO
 }
 
 enum StatusProcesso {
@@ -172,6 +160,8 @@ model Documento {
   processoId   String   @map("processo_id")
   nome         String
   storagePath  String?  @map("storage_path")
+  driveFileId  String?  @map("drive_file_id")
+  driveLink    String?  @map("drive_link")
   tipo         String?
   tamanhoBytes BigInt?  @map("tamanho_bytes")
   createdAt    DateTime @default(now()) @map("created_at")

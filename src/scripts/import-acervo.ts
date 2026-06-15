@@ -5,8 +5,9 @@ import {
   FonteAndamento,
   PrismaClient,
   type StatusProcesso,
-  type Tribunal,
 } from '@prisma/client'
+
+type Tribunal = string
 
 type InputCliente = {
   nome?: string

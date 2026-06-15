@@ -22,9 +22,9 @@ import {
 import { toast } from "sonner"
 import { createProcesso, updateProcesso, getFormOptions } from "../actions"
 import { Plus, Pencil } from "lucide-react"
-import { Tribunal, StatusProcesso } from "@prisma/client"
+import { StatusProcesso } from "@prisma/client"
 
-const tribunais: Tribunal[] = ["TJSC", "TJRS", "TJPR", "TJSP", "TJRJ", "TJMG", "TJGO", "TJPA", "OUTRO"]
+const tribunais: string[] = ["TJSC", "TJRS", "TJPR", "TJSP", "TJRJ", "TJMG", "TJGO", "TJPA", "TRT12", "OUTRO"]
 const statusList: StatusProcesso[] = ["ATIVO", "ARQUIVADO", "SUSPENSO", "ENCERRADO"]
 const areas = ["Cível", "Trabalhista", "Imobiliário", "Tributário", "Previdenciário", "Consumidor", "Penal", "Família", "Empresarial"]
 
@@ -32,7 +32,7 @@ interface ProcessoFormProps {
   processo?: {
     id: string
     numero: string
-    tribunal: Tribunal
+    tribunal: string
     vara: string | null
     area: string | null
     status: StatusProcesso

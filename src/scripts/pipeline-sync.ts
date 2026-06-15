@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client'
 
 import { createEprocHttpClient, type Tribunal } from '@/lib/scraper/eproc-http'
 import { syncAndamentos } from '@/lib/pipeline/sync-andamentos'
+import { createDriveArchiver } from '@/lib/storage/drive-archive'
 
 const getEnv = (key: string, fallback?: string): string => {
   const val = process.env[key] ?? fallback
@@ -57,6 +58,7 @@ export const run = async (): Promise<number> => {
 
     const result = await syncAndamentos(prisma, { collectSnapshot: async () => snapshot }, {
       archiveBaseDir,
+      driveArchiver: createDriveArchiver(),
     })
 
     console.info('[pipeline:sync] completed', {

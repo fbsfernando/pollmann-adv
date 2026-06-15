@@ -100,6 +100,7 @@ export type SyncPhaseCounters = {
   persistedAndamentos: number
   persistedDocumentos: number
   archiveFailures: number
+  driveFailures: number
   notificationFailures: number
 }
 

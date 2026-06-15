@@ -4,13 +4,14 @@ import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { requireAuth } from "@/lib/auth/guards"
-import { Tribunal, StatusProcesso, Role, Prisma } from "@prisma/client"
+import { StatusProcesso, Role, Prisma } from "@prisma/client"
 import { createEprocHttpClient, type Tribunal as ScraperTribunal } from "@/lib/scraper/eproc-http"
 import { syncAndamentos } from "@/lib/pipeline/sync-andamentos"
+import { createDriveArchiver } from "@/lib/storage/drive-archive"
 
 const processoSchema = z.object({
   numero: z.string().min(5, "Número do processo é obrigatório"),
-  tribunal: z.nativeEnum(Tribunal),
+  tribunal: z.string().min(2, "Tribunal é obrigatório"),
   vara: z.string().optional().nullable(),
   area: z.string().optional().nullable(),
   status: z.nativeEnum(StatusProcesso).optional(),
@@ -37,7 +38,7 @@ export async function getProcessos(filters?: {
       { cliente: { nome: { contains: search, mode: "insensitive" } } },
     ]
   }
-  if (filters?.tribunal) where.tribunal = filters.tribunal as Tribunal
+  if (filters?.tribunal) where.tribunal = filters.tribunal
   if (filters?.status) where.status = filters.status as StatusProcesso
 
   if (session.user.role === Role.ADVOGADO) {
@@ -231,7 +232,7 @@ export async function syncProcessoAgora(id: string): Promise<
     const result = await syncAndamentos(
       prisma,
       { collectSnapshot: async () => snapshot },
-      { archiveBaseDir }
+      { archiveBaseDir, driveArchiver: createDriveArchiver() }
     )
 
     revalidatePath(`/dashboard/processos/${processoId}`)

@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { Tribunal } from '@prisma/client'
 
 import { requireAuth } from '@/lib/auth/guards'
 import { prisma } from '@/lib/db'
@@ -28,7 +27,7 @@ export async function GET(
     return NextResponse.json({ error: 'Processo não encontrado' }, { status: 404 })
   }
 
-  if (processo.tribunal !== Tribunal.TJSC && processo.tribunal !== Tribunal.TJRS) {
+  if (processo.tribunal !== 'TJSC' && processo.tribunal !== 'TJRS') {
     return NextResponse.json(
       { error: 'Link direto disponível apenas para processos TJSC/TJRS' },
       { status: 400 }

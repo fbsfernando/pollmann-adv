@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { FonteAndamento, type PrismaClient } from '@prisma/client'
 
 import { archiveDocument } from '@/lib/storage/document-archive'
+import type { DriveArchiver } from '@/lib/storage/drive-archive'
 import { notifyNovoAndamento } from '@/lib/notifications/notify-novo-andamento'
 import { detectNewItems } from '@/lib/pipeline/detect-new-items'
 import type { EprocClient } from '@/lib/scraper/eproc-client'
@@ -10,6 +11,8 @@ import type { SyncResult } from '@/lib/pipeline/types'
 
 export type SyncRuntimeDeps = {
   archiveBaseDir: string
+  /** Arquivador opcional do Google Drive. Quando ausente, só arquiva localmente. */
+  driveArchiver?: DriveArchiver | null
   loadDocumentContent?: (externalId: string) => Promise<Buffer>
   notificationSender?: (input: {
     processoNumero: string
@@ -35,6 +38,7 @@ export const syncAndamentos = async (
   let persistedAndamentos = 0
   let persistedDocumentos = 0
   let archiveFailures = 0
+  let driveFailures = 0
   let notificationFailures = 0
 
   const loadDocumentContent = deps?.loadDocumentContent ?? defaultLoadDocumentContent
@@ -50,11 +54,15 @@ export const syncAndamentos = async (
     type DocArchiveEntry = {
       doc: (typeof candidate.andamento.documentos)[number]
       archivePath: string
+      driveFileId: string | null
+      driveLink: string | null
     }
     const docEntries: DocArchiveEntry[] = []
 
     for (const doc of candidate.andamento.documentos) {
       let archivePath = doc.storagePath ?? ''
+      let driveFileId: string | null = null
+      let driveLink: string | null = null
 
       const inlineContent = (doc as { content?: Buffer }).content
       const contentSource = inlineContent
@@ -72,11 +80,29 @@ export const syncAndamentos = async (
           content,
         })
         archivePath = archive.storagePath
+
+        // Upload opcional ao Google Drive (cliente → processo → documento).
+        // Falha no Drive não desfaz o arquivamento local nem a persistência.
+        if (deps?.driveArchiver) {
+          try {
+            const drive = await deps.driveArchiver.archive({
+              clienteNome: processo?.cliente.nome ?? 'cliente-desconhecido',
+              processoNumero: candidate.andamento.processoNumero,
+              documentoNome: doc.nome,
+              documentoExternalId: doc.externalId,
+              content,
+            })
+            driveFileId = drive.driveFileId
+            driveLink = drive.driveLink
+          } catch {
+            driveFailures += 1
+          }
+        }
       } catch {
         archiveFailures += 1
       }
 
-      docEntries.push({ doc, archivePath })
+      docEntries.push({ doc, archivePath, driveFileId, driveLink })
     }
 
     // Passo 2: Persiste andamento + documentos atomicamente
@@ -94,7 +120,7 @@ export const syncAndamentos = async (
         },
       })
 
-      for (const { doc, archivePath } of docEntries) {
+      for (const { doc, archivePath, driveFileId, driveLink } of docEntries) {
         await tx.documento.upsert({
           where: { externalId: doc.externalId },
           create: {
@@ -105,6 +131,8 @@ export const syncAndamentos = async (
             tipo: doc.tipo,
             tamanhoBytes: doc.tamanhoBytes,
             storagePath: archivePath,
+            driveFileId,
+            driveLink,
           },
           update: {
             andamentoId: created.id,
@@ -113,6 +141,8 @@ export const syncAndamentos = async (
             tipo: doc.tipo,
             tamanhoBytes: doc.tamanhoBytes,
             storagePath: archivePath,
+            driveFileId,
+            driveLink,
           },
         })
 
@@ -150,6 +180,7 @@ export const syncAndamentos = async (
       persistedAndamentos,
       persistedDocumentos,
       archiveFailures,
+      driveFailures,
       notificationFailures,
     },
   }
