@@ -114,7 +114,11 @@ export const syncPublicacoesExpedit = async (
   for (const grupo of grupos) {
     const uf = String(grupo.estado ?? grupo.uf ?? '').trim()
     const sigla = String(grupo.sigla_diario ?? grupo.siglaDiario ?? '').trim()
-    const dataStr = String(grupo.Data ?? grupo.data ?? '').trim()
+    // O endpoint de itens filtra por `Data` = data de publicação do grupo. A listagem
+    // expõe `data_publicacao`/`data_disponibilizacao` (não `Data`/`data`).
+    const dataStr = String(
+      grupo.data_publicacao ?? grupo.data_disponibilizacao ?? grupo.Data ?? grupo.data ?? ''
+    ).trim()
     const data = parseExpeditDate(dataStr) ?? range.from
 
     if (!uf || !sigla) continue

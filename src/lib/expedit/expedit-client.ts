@@ -133,6 +133,11 @@ export const createExpeditClient = (config: ExpeditConfig): ExpeditClient => {
       Cookie: cookies.toString(),
       ...(init.headers as Record<string, string> | undefined),
     }
+    // Permite remover um header padrão passando string vazia (ex.: X-Requested-With
+    // no fluxo de login, que deve imitar um POST de formulário do navegador).
+    for (const key of Object.keys(headers)) {
+      if (headers[key] === '') delete headers[key]
+    }
     const fetchOptions: RequestInit & { dispatcher?: Dispatcher } = {
       ...init,
       headers,
@@ -148,22 +153,42 @@ export const createExpeditClient = (config: ExpeditConfig): ExpeditClient => {
     return response
   }
 
+  /** Extrai o token CSRF do input hidden `name="csrf"` da página de login. */
+  const extractCsrf = (html: string): string => {
+    const m =
+      html.match(/name=["']csrf["'][^>]*value=["']([^"']+)["']/i) ??
+      html.match(/value=["']([^"']+)["'][^>]*name=["']csrf["']/i)
+    return m?.[1] ?? ''
+  }
+
   const authenticate = async (): Promise<void> => {
     if (authenticated) return
 
-    // GET inicial para obter um PHPSESSID antes do POST de login.
-    await doFetch(`${baseUrl}/`).catch(() => undefined)
+    // 1) GET /login → obtém PHPSESSID (cookie) e o token CSRF do formulário.
+    const loginPage = await doFetch(`${baseUrl}/login`, {
+      headers: { Accept: 'text/html', 'X-Requested-With': '' },
+    })
+    const csrf = extractCsrf(await loginPage.text())
 
-    const body = new URLSearchParams({ email: config.email, senha: config.senha })
-    const response = await doFetch(`${baseUrl}/login`, {
+    // 2) POST /login imitando o submit do formulário do navegador. Os nomes reais
+    //    dos campos são `csrf`, `email` e `password` (não `senha`).
+    const body = new URLSearchParams({ csrf, email: config.email, password: config.senha })
+    await doFetch(`${baseUrl}/login`, {
       method: 'POST',
       body,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'text/html',
+        'X-Requested-With': '',
+      },
     })
 
-    // Sessão válida quando recebemos o cookie de sessão (PHPSESSID).
-    if (!cookies.has('PHPSESSID') && response.status >= 400) {
-      throw new Error(`Expedit: falha no login (HTTP ${response.status})`)
+    // 3) Valida a sessão: um endpoint protegido deve responder JSON. Se vier HTML,
+    //    o login não autenticou (credenciais inválidas ou CSRF ausente).
+    const probe = await doFetch(`${baseUrl}/processos/getProcessCounts`)
+    const contentType = probe.headers.get('content-type') ?? ''
+    if (!cookies.has('PHPSESSID') || !contentType.includes('json')) {
+      throw new Error('Expedit: falha no login (credenciais inválidas ou CSRF)')
     }
     authenticated = true
   }

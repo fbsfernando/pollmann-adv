@@ -35,7 +35,14 @@ export const normalizeTribunal = (raw?: string): string => {
 }
 
 const pickNumero = (p: ExpeditProcesso): string =>
-  String(p.numeroCNJ ?? p.numero_cnj ?? p.numero ?? '').trim()
+  String(p.numeroProcesso ?? p.numeroCNJ ?? p.numero_cnj ?? p.numero ?? '').trim()
+
+/** Tribunal vem como objeto `{id, descricao}` na listagem, ou string em outras telas. */
+const pickTribunalRaw = (p: ExpeditProcesso): string => {
+  const t = p.tribunal
+  if (t && typeof t === 'object') return String(t.descricao ?? '')
+  return String(t ?? p.origem ?? '')
+}
 
 const pickExpeditId = (p: ExpeditProcesso): string | null => {
   const id = p.id
@@ -44,10 +51,13 @@ const pickExpeditId = (p: ExpeditProcesso): string | null => {
 }
 
 const pickClienteNome = (p: ExpeditProcesso): string => {
-  const raw = String(p.nomeClientes ?? p.nome_clientes ?? p.parte_principal ?? '').trim()
+  // Listagem `/processos/dados` traz `partes` ("Autor x Réu"); o detalhe traz nomeClientes.
+  const raw = String(
+    p.nomeClientes ?? p.nome_clientes ?? p.parte_principal ?? p.partes ?? ''
+  ).trim()
   if (!raw) return CLIENTE_FALLBACK
-  // Pode vir uma lista separada por vírgula/";" — usa o primeiro nome.
-  const first = raw.split(/\s*[;,]\s*/)[0]?.trim()
+  // Usa o primeiro nome: separa por " x " (partes) e por vírgula/";" (listas).
+  const first = raw.split(/\s+x\s+/i)[0]?.split(/\s*[;,]\s*/)[0]?.trim()
   return first || CLIENTE_FALLBACK
 }
 
@@ -96,9 +106,12 @@ export const syncProcessosExpedit = async (
     }
 
     const expeditId = pickExpeditId(p)
-    const tribunal = normalizeTribunal(String(p.tribunal ?? p.origem ?? ''))
+    const tribunal = normalizeTribunal(pickTribunalRaw(p))
     const esfera = pickEsfera(p)
-    const vara = (typeof p.vara === 'string' && p.vara.trim()) || null
+    const vara =
+      (typeof p.vara === 'string' && p.vara.trim()) ||
+      (typeof p.orgao === 'string' && p.orgao.trim()) ||
+      null
     const area = (typeof p.area === 'string' && p.area.trim()) || null
 
     const existing = await prisma.processo.findUnique({

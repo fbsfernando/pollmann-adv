@@ -22,13 +22,18 @@ export type ExpeditPaginatedResponse<T> = {
 export type ExpeditProcesso = {
   /** Identificador interno do processo no Expedit (idempotência da importação). */
   id?: string | number
-  /** Número CNJ do processo. */
+  /** Número CNJ do processo. Na listagem `/processos/dados` o campo é `numeroProcesso`. */
+  numeroProcesso?: string
   numeroCNJ?: string
   numero_cnj?: string
   numero?: string
-  /** Tribunal/origem (ex.: "TJSC 1° Grau - Eproc"). */
-  tribunal?: string
+  /** Tribunal/origem. Na listagem vem como objeto `{id, descricao}`; em outras telas pode ser string. */
+  tribunal?: string | { id?: number; descricao?: string }
   origem?: string
+  /** Órgão julgador / vara (string na listagem). */
+  orgao?: string
+  /** Partes no formato "Autor x Réu". */
+  partes?: string
   /** Esfera (Estadual/Trabalhista/Federal). */
   esfera?: string
   esfera_diario?: string
@@ -74,6 +79,9 @@ export type ExpeditPublicacaoGrupo = {
   /** Data (YYYY-MM-DD ou dd/mm/yyyy). */
   data?: string
   Data?: string
+  /** Datas reais retornadas por `/publicacoes/lista` (usadas para consultar os itens do diário). */
+  data_publicacao?: string
+  data_disponibilizacao?: string
   /** UF do diário. */
   estado?: string
   uf?: string
