@@ -9,6 +9,9 @@ import {
   Users,
   FileText,
   Scale,
+  Bell,
+  Calendar,
+  UserCog,
   X,
   LogOut,
   ChevronRight,
@@ -38,6 +41,26 @@ const navItems = [
     label: "Processos",
     icon: FileText,
     exact: false,
+  },
+  {
+    href: "/dashboard/atualizacoes/publicacoes",
+    label: "Atualizações",
+    icon: Bell,
+    exact: false,
+    adminOnly: true,
+  },
+  {
+    href: "/dashboard/agenda",
+    label: "Agenda",
+    icon: Calendar,
+    exact: false,
+  },
+  {
+    href: "/dashboard/usuarios",
+    label: "Usuários",
+    icon: UserCog,
+    exact: false,
+    adminOnly: true,
   },
 ]
 

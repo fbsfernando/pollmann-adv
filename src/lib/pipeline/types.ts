@@ -45,7 +45,7 @@ export type ExternalProcessoMetadata = {
 }
 
 export type ScraperSnapshot = {
-  source: 'eproc'
+  source: 'eproc' | 'expedit'
   collectedAtIso: string
   andamentos: ExternalAndamentoInput[]
   /** Metadados por processo (chave = número CNJ). Opcional para compat. */
