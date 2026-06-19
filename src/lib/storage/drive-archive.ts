@@ -16,6 +16,8 @@ import { Readable } from 'node:stream'
 
 import { google } from 'googleapis'
 
+import { primeiraParteNome } from '@/lib/storage/document-archive'
+
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
 /** Subconjunto mínimo da API do Drive que usamos — facilita testes com fake. */
@@ -105,7 +107,7 @@ export const archiveToDrive = async (
   rootFolderId: string,
   input: DriveArchiveInput
 ): Promise<DriveArchiveResult> => {
-  const clienteSeg = cleanName(input.clienteNome, 'cliente-sem-nome')
+  const clienteSeg = cleanName(primeiraParteNome(input.clienteNome), 'cliente-sem-nome')
   const processoSeg = cleanName(input.processoNumero, 'processo-sem-numero')
   const fileName = cleanName(input.documentoNome, input.documentoExternalId)
 
@@ -128,28 +130,45 @@ export const archiveToDrive = async (
 
 // ─── Client googleapis (runtime) ──────────────────────────────────────────────
 
-const DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive']
+// Escopo `drive.file`: o app só acessa arquivos/pastas que ELE criou. É um escopo
+// não-sensível — não exige verificação do Google e o refresh token não expira em
+// 7 dias (ao contrário do escopo `drive` amplo). Por isso a pasta-raiz é criada
+// pelo próprio app (ver createDriveArchiver).
+export const DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
 /**
- * Constrói um `DriveApi` real a partir de uma service account. Credenciais via:
- *  - `GOOGLE_SERVICE_ACCOUNT_KEY_JSON` (conteúdo JSON inline), ou
- *  - `GOOGLE_APPLICATION_CREDENTIALS` (caminho do arquivo JSON — padrão do SDK).
+ * Monta o cliente de autenticação. Ordem de precedência:
+ *  1. OAuth de usuário real (Gmail pessoal): GOOGLE_OAUTH_CLIENT_ID/SECRET +
+ *     GOOGLE_OAUTH_REFRESH_TOKEN — arquivos ficam de posse do usuário e usam a
+ *     cota dele. (Service account não tem cota de Drive própria.)
+ *  2. Service account inline (Workspace/Shared Drive): GOOGLE_SERVICE_ACCOUNT_KEY_JSON.
+ *  3. Application Default Credentials: GOOGLE_APPLICATION_CREDENTIALS.
  */
-export const createGoogleDriveApi = (): DriveApi => {
+const buildDriveAuth = () => {
+  const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN
+  if (refreshToken) {
+    const oauth2 = new google.auth.OAuth2(
+      process.env.GOOGLE_OAUTH_CLIENT_ID,
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET
+    )
+    oauth2.setCredentials({ refresh_token: refreshToken })
+    return oauth2
+  }
   const inline = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON
-  const auth = inline
-    ? (() => {
-        const creds = JSON.parse(inline) as { client_email: string; private_key: string }
-        return new google.auth.JWT({
-          email: creds.client_email,
-          key: creds.private_key,
-          scopes: DRIVE_SCOPES,
-        })
-      })()
-    : new google.auth.GoogleAuth({ scopes: DRIVE_SCOPES })
+  if (inline) {
+    const creds = JSON.parse(inline) as { client_email: string; private_key: string }
+    return new google.auth.JWT({
+      email: creds.client_email,
+      key: creds.private_key,
+      scopes: DRIVE_SCOPES,
+    })
+  }
+  return new google.auth.GoogleAuth({ scopes: DRIVE_SCOPES })
+}
 
-  // `auth` aceita tanto JWT quanto GoogleAuth; o tipo do client é union.
-  const drive = google.drive({ version: 'v3', auth: auth as never })
+export const createGoogleDriveApi = (): DriveApi => {
+  // `auth` pode ser OAuth2, JWT ou GoogleAuth; o tipo do client é union.
+  const drive = google.drive({ version: 'v3', auth: buildDriveAuth() as never })
 
   const escapeQuery = (value: string): string => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 
@@ -203,28 +222,44 @@ export const createGoogleDriveApi = (): DriveApi => {
 const bufferToStream = (buffer: Buffer) => Readable.from(buffer)
 
 /**
- * Factory opt-in. Retorna `null` quando o Drive não está configurado
- * (`GOOGLE_DRIVE_ROOT_FOLDER_ID` ausente), preservando o arquivamento só-local.
+ * Factory opt-in. Retorna `null` quando não há credenciais do Drive configuradas,
+ * preservando o arquivamento só-local.
+ *
+ * Credenciais aceitas (qualquer uma habilita):
+ *  - OAuth de usuário: GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET +
+ *    GOOGLE_OAUTH_REFRESH_TOKEN (caminho para Gmail pessoal)
+ *  - Service account: GOOGLE_SERVICE_ACCOUNT_KEY_JSON ou GOOGLE_APPLICATION_CREDENTIALS
+ *
+ * Pasta-raiz: usa GOOGLE_DRIVE_ROOT_FOLDER_ID se informado (ex.: Shared Drive);
+ * caso contrário, o app cria/reutiliza uma pasta pelo nome GOOGLE_DRIVE_ROOT_FOLDER_NAME
+ * (default "Acervo Jurídico ADV") na raiz do Drive — necessário com escopo drive.file.
  */
 export const createDriveArchiver = (
   apiFactory: () => DriveApi = createGoogleDriveApi
 ): DriveArchiver | null => {
-  const rootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID
-  if (!rootFolderId) return null
-
-  const hasCreds =
+  const hasOAuth =
+    !!process.env.GOOGLE_OAUTH_REFRESH_TOKEN &&
+    !!process.env.GOOGLE_OAUTH_CLIENT_ID &&
+    !!process.env.GOOGLE_OAUTH_CLIENT_SECRET
+  const hasServiceAccount =
     !!process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON ||
     !!process.env.GOOGLE_APPLICATION_CREDENTIALS
-  if (!hasCreds) {
-    console.warn(
-      '[drive-archive] GOOGLE_DRIVE_ROOT_FOLDER_ID definido mas faltam credenciais ' +
-        '(GOOGLE_SERVICE_ACCOUNT_KEY_JSON ou GOOGLE_APPLICATION_CREDENTIALS) — Drive desativado'
-    )
-    return null
-  }
+
+  if (!hasOAuth && !hasServiceAccount) return null
 
   const api = apiFactory()
+  const explicitRootId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID
+  const rootFolderName = process.env.GOOGLE_DRIVE_ROOT_FOLDER_NAME ?? 'Acervo Jurídico ADV'
+
+  // Resolve a pasta-raiz uma única vez (memoizada).
+  let rootIdPromise: Promise<string> | null = null
+  const resolveRootId = (): Promise<string> => {
+    if (explicitRootId) return Promise.resolve(explicitRootId)
+    if (!rootIdPromise) rootIdPromise = ensureFolder(api, rootFolderName, 'root')
+    return rootIdPromise
+  }
+
   return {
-    archive: (input) => archiveToDrive(api, rootFolderId, input),
+    archive: async (input) => archiveToDrive(api, await resolveRootId(), input),
   }
 }

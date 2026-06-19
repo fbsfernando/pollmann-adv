@@ -13,6 +13,7 @@
     "db:reset": "prisma db push --force-reset && npm run db:seed",
     "pipeline:sync": "tsx src/scripts/pipeline-sync.ts",
     "pipeline:watch": "tsx src/scripts/pipeline-watch.ts",
+    "drive:auth": "tsx -r dotenv/config src/scripts/drive-auth.ts",
     "scraper:test": "tsx src/scripts/test-scraper.ts",
     "migrate:acervo": "tsx src/scripts/import-acervo.ts",
     "scraper:acervo": "tsx src/scripts/scraper-to-acervo.ts",

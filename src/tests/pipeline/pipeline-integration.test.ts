@@ -65,7 +65,8 @@ describe('pipeline integration', () => {
     expect(result.phase.notificationFailures).toBe(0)
 
     const upsertArg = db.documento.upsert.mock.calls[0][0]
-    expect(upsertArg.create.storagePath).toContain('cliente-demo/0001/doc-1.pdf')
+    // Regra 13/04: pasta = primeira parte do nome ("Cliente Demo" → "cliente")
+    expect(upsertArg.create.storagePath).toContain('cliente/0001/doc-1.pdf')
     expect(sender).toHaveBeenCalledTimes(1)
   })
 

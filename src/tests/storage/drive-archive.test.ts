@@ -52,7 +52,7 @@ const baseInput = {
 
 describe('archiveToDrive', () => {
   it('cria estrutura cliente → processo → documento e retorna id + link', async () => {
-    const { api, calls } = createFakeDrive()
+    const { api, calls, folders } = createFakeDrive()
 
     const res = await archiveToDrive(api, 'root', baseInput)
 
@@ -60,6 +60,8 @@ describe('archiveToDrive', () => {
     expect(calls.uploadFile).toBe(1)
     expect(res.driveFileId).toMatch(/^file-/)
     expect(res.driveLink).toContain('https://drive.example/')
+    // Regra 13/04: pasta de 1º nível = primeira parte do nome ("João da Silva" → "João")
+    expect(folders.has('root/João')).toBe(true)
   })
 
   it('é idempotente: reutiliza pastas e arquivo existentes na 2ª execução', async () => {

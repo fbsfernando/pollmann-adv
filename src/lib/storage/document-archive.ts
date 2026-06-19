@@ -30,13 +30,22 @@ const extFromName = (name: string): string => {
   return ext || '.bin'
 }
 
+/**
+ * Primeira parte do nome do cliente — usada como pasta de 1º nível.
+ * Regra combinada com o cliente em 13/04/2026:
+ *   <primeira parte do nome do cliente> / <número do processo> / <documentos>
+ * Ex.: "João da Silva" → "João"; "BANCO DO BRASIL S.A." → "BANCO".
+ */
+export const primeiraParteNome = (nome: string): string =>
+  (nome ?? '').trim().split(/\s+/)[0] ?? ''
+
 export const buildArchiveRelativePath = (params: {
   clienteNome: string
   processoNumero: string
   documentoExternalId: string
   documentoNome: string
 }): string => {
-  const cliente = sanitizeSegment(params.clienteNome) || 'cliente-sem-nome'
+  const cliente = sanitizeSegment(primeiraParteNome(params.clienteNome)) || 'cliente-sem-nome'
   const processo = sanitizeSegment(params.processoNumero) || 'processo-sem-numero'
   const externalId = sanitizeSegment(params.documentoExternalId) || 'documento'
   const ext = extFromName(params.documentoNome)
