@@ -128,6 +128,25 @@ export type ExpeditPublicacaoItem = {
   [key: string]: unknown
 }
 
+// ─── Documentos (módulo Atualizações › Documentos) ────────────────────────────
+
+/** Item de `/atualizacao/documentos/lista`. O Expedit já baixou o arquivo e o
+ *  hospeda em `doc.expedit.com.br` (CDN S3 público) — download direto, sem auth. */
+export type ExpeditDocumentoItem = {
+  numero_processo?: string
+  processo_id?: string | number
+  data_juntado?: string
+  /** URL pública de download (doc.expedit.com.br). */
+  link_documento?: string
+  /** Nome/descrição do documento. */
+  documento?: string
+  orgao?: string
+  /** Tribunal/origem (ex.: "TRT18 - GO - 1° Grau - PJe"). */
+  descricao?: string
+  partes?: string
+  [key: string]: unknown
+}
+
 // ─── Resultado do parser de `conteudo_publicacao` ─────────────────────────────
 
 export type PublicacaoConteudoParsed = {

@@ -15,6 +15,7 @@
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from 'undici'
 
 import type {
+  ExpeditDocumentoItem,
   ExpeditPaginatedResponse,
   ExpeditProcesso,
   ExpeditProcessoDetalhe,
@@ -108,6 +109,10 @@ export interface ExpeditClient {
     sigla: string
     range: DataRange
   }): Promise<ExpeditPublicacaoItem[]>
+  /** Lista uma página de documentos (módulo Atualizações › Documentos) num intervalo. */
+  listDocumentos(range: DataRange, page?: number, limit?: number): Promise<ExpeditDocumentoItem[]>
+  /** Lista TODOS os documentos do intervalo, paginando por `totalPages`. */
+  listAllDocumentos(range: DataRange, limit?: number): Promise<ExpeditDocumentoItem[]>
   /** Baixa um documento do Expedit a partir de uma URL absoluta/relativa. */
   downloadDocumento(url: string): Promise<ExpeditDocumentoDownload | null>
 }
@@ -262,6 +267,40 @@ export const createExpeditClient = (config: ExpeditConfig): ExpeditClient => {
         `/atualizacao/publicacoes/diarios?${qs.toString()}`
       )
       return res.montaTemplate?.[0]?.dados ?? []
+    },
+
+    async listDocumentos(range, page = 1, limit = 100) {
+      const qs = new URLSearchParams({
+        data: `${toBrDate(range.from)} - ${toBrDate(range.to)}`,
+        page: String(page),
+        limit: String(limit),
+        perPage: String(limit),
+      })
+      const res = await getJson<ExpeditPaginatedResponse<ExpeditDocumentoItem>>(
+        `/atualizacao/documentos/lista?${qs.toString()}`
+      )
+      return res.data ?? []
+    },
+
+    async listAllDocumentos(range, limit = 100) {
+      const all: ExpeditDocumentoItem[] = []
+      let page = 1
+      let totalPages = 1
+      do {
+        const qs = new URLSearchParams({
+          data: `${toBrDate(range.from)} - ${toBrDate(range.to)}`,
+          page: String(page),
+          limit: String(limit),
+          perPage: String(limit),
+        })
+        const res = await getJson<ExpeditPaginatedResponse<ExpeditDocumentoItem>>(
+          `/atualizacao/documentos/lista?${qs.toString()}`
+        )
+        all.push(...(res.data ?? []))
+        totalPages = res.totalPages ?? 1
+        page += 1
+      } while (page <= totalPages && page < 1000)
+      return all
     },
 
     async downloadDocumento(url) {

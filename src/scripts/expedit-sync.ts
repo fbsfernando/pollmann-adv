@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client'
 import { createExpeditClient } from '@/lib/expedit/expedit-client'
 import { syncProcessosExpedit } from '@/lib/pipeline/sync-processos-expedit'
 import { syncPublicacoesExpedit } from '@/lib/pipeline/sync-publicacoes-expedit'
+import { syncDocumentosExpedit } from '@/lib/pipeline/sync-documentos-expedit'
 import { createDriveArchiver } from '@/lib/storage/drive-archive'
 
 const getEnv = (key: string, fallback?: string): string => {
@@ -46,11 +47,18 @@ export const run = async (): Promise<number> => {
       driveArchiver,
     })
 
+    // 3) Sincroniza documentos juntados no intervalo + arquiva (local + Drive).
+    const documentosResult = await syncDocumentosExpedit(prisma, client, range, {
+      archiveBaseDir,
+      driveArchiver,
+    })
+
     console.info('[expedit:sync] completed', {
       runId: publicacoesResult.runId,
       range: { from: range.from.toISOString(), to: range.to.toISOString() },
       processos: processosResult.phase,
       publicacoes: publicacoesResult.phase,
+      documentos: documentosResult.phase,
       timestamp: new Date().toISOString(),
     })
 
