@@ -97,9 +97,19 @@ describe("auth/processos scope contract", () => {
 
     expect(mockProcessoFindFirst).toHaveBeenCalledTimes(1)
     const arg = mockProcessoFindFirst.mock.calls[0][0] as {
-      where: { id: string; advogadoId?: string }
+      where: {
+        id: string
+        OR?: Array<{ advogadoId?: string; tarefas?: { some?: { responsavelId?: string } } }>
+      }
     }
-    expect(arg.where).toMatchObject({ id: "proc-1", advogadoId: "adv-1" })
+    // Advogado acessa por responsabilidade OU por tarefa direcionada a ele no processo.
+    expect(arg.where).toMatchObject({
+      id: "proc-1",
+      OR: [
+        { advogadoId: "adv-1" },
+        { tarefas: { some: { responsavelId: "adv-1" } } },
+      ],
+    })
   })
 
   it("rejects malformed processo id", async () => {

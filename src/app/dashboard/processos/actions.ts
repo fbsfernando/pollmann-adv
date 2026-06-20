@@ -71,7 +71,12 @@ export async function getProcesso(id: string) {
 
   const where: Prisma.ProcessoWhereInput = { id: processoId }
   if (session.user.role === Role.ADVOGADO) {
-    where.advogadoId = session.user.id
+    // Advogado acessa o processo se for o responsável OU se tiver uma tarefa
+    // direcionada a ele nesse processo (delegação via tratamento de publicação).
+    where.OR = [
+      { advogadoId: session.user.id },
+      { tarefas: { some: { responsavelId: session.user.id } } },
+    ]
   }
 
   const processo = await prisma.processo.findFirst({

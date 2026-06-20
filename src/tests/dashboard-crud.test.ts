@@ -80,11 +80,23 @@ vi.mock("@/lib/db", () => ({
           return true
         })
       }),
-      findFirst: vi.fn(async ({ where }: { where: { id?: string; advogadoId?: string } }) => {
+      findFirst: vi.fn(async ({ where }: { where: { id?: string; advogadoId?: string; OR?: Array<{ advogadoId?: string; tarefas?: { some?: { responsavelId?: string } } }> } }) => {
         const values = Array.from(prismaState.records.values())
         return values.find((item) => {
           if (where.id && item.id !== where.id) return false
           if (where.advogadoId && item.advogadoId !== where.advogadoId) return false
+          if (where.OR?.length) {
+            const matchesOr = where.OR.some((clause) => {
+              if (clause.advogadoId) return item.advogadoId === clause.advogadoId
+              const respId = clause.tarefas?.some?.responsavelId
+              if (respId) {
+                const tarefas = (item as { tarefas?: Array<{ responsavelId: string }> }).tarefas ?? []
+                return tarefas.some((t) => t.responsavelId === respId)
+              }
+              return false
+            })
+            if (!matchesOr) return false
+          }
           return true
         }) ?? null
       }),
