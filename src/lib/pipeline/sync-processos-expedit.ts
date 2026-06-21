@@ -7,7 +7,7 @@
  * CNJ (`numero`, único no schema) — assim um processo já cadastrado por outra
  * fonte (E-PROC) é vinculado em vez de duplicado.
  */
-import type { PrismaClient } from '@prisma/client'
+import { FonteAndamento, type PrismaClient } from '@prisma/client'
 
 import type { ExpeditClient } from '@/lib/expedit/expedit-client'
 import type { ExpeditProcesso } from '@/lib/expedit/expedit-types'
@@ -18,6 +18,8 @@ export type ProcessosSyncCounters = {
   processosCriados: number
   processosAtualizados: number
   ignorados: number
+  /** Andamentos (última movimentação) registrados/acumulados a partir da listagem. */
+  andamentosRegistrados: number
 }
 
 export type ProcessosSyncResult = {
@@ -66,6 +68,15 @@ const pickEsfera = (p: ExpeditProcesso): string | null => {
   return e || null
 }
 
+/** Converte "YYYY-MM-DD HH:mm:ss" (ou ISO) em Date; null se inválida/ausente. */
+const parseMovDate = (raw?: string): Date | null => {
+  const s = String(raw ?? '').trim()
+  if (!s) return null
+  const iso = s.includes('T') ? s : s.replace(' ', 'T')
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
 export const syncProcessosExpedit = async (
   prisma: PrismaClient,
   client: ExpeditClient,
@@ -80,6 +91,7 @@ export const syncProcessosExpedit = async (
   let processosCriados = 0
   let processosAtualizados = 0
   let ignorados = 0
+  let andamentosRegistrados = 0
 
   // Cache de clientes por nome dentro da run (Cliente.nome não é único no schema).
   const clienteIdByNome = new Map<string, string>()
@@ -119,6 +131,7 @@ export const syncProcessosExpedit = async (
       select: { id: true },
     })
 
+    let processoId: string
     if (existing) {
       await prisma.processo.update({
         where: { id: existing.id },
@@ -130,23 +143,40 @@ export const syncProcessosExpedit = async (
           area: area ?? undefined,
         },
       })
+      processoId = existing.id
       processosAtualizados += 1
-      continue
+    } else {
+      const clienteId = await ensureCliente(pickClienteNome(p))
+      const created = await prisma.processo.create({
+        data: { numero, expeditId, tribunal, esfera, vara, area, clienteId },
+        select: { id: true },
+      })
+      processoId = created.id
+      processosCriados += 1
     }
 
-    const clienteId = await ensureCliente(pickClienteNome(p))
-    await prisma.processo.create({
-      data: {
-        numero,
-        expeditId,
-        tribunal,
-        esfera,
-        vara,
-        area,
-        clienteId,
-      },
-    })
-    processosCriados += 1
+    // Registra a última movimentação como Andamento. O Expedit v2 não expõe a
+    // timeline completa por processo (só a última), então o sync periódico
+    // ACUMULA novas movimentações ao longo do tempo. Idempotente por externalId
+    // (processo + timestamp da movimentação) — repetir o sync não duplica.
+    const movData = parseMovDate(p.ultimaMovimentacao)
+    const movDesc = String(p.ultimaMovimentacaoDesc ?? '').trim()
+    if (movData && movDesc && (expeditId || numero)) {
+      const externalId = `expedit-mov:${expeditId ?? numero}:${movData.toISOString()}`
+      await prisma.andamento.upsert({
+        where: { externalId },
+        create: {
+          processoId,
+          externalId,
+          data: movData,
+          tipo: 'Movimentação',
+          descricao: movDesc,
+          fonte: FonteAndamento.EXPEDIT,
+        },
+        update: { descricao: movDesc },
+      })
+      andamentosRegistrados += 1
+    }
   }
 
   return {
@@ -156,6 +186,7 @@ export const syncProcessosExpedit = async (
       processosCriados,
       processosAtualizados,
       ignorados,
+      andamentosRegistrados,
     },
   }
 }

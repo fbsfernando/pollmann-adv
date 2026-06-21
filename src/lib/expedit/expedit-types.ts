@@ -34,6 +34,10 @@ export type ExpeditProcesso = {
   orgao?: string
   /** Partes no formato "Autor x Réu". */
   partes?: string
+  /** Última movimentação capturada (timestamp "YYYY-MM-DD HH:mm:ss"). */
+  ultimaMovimentacao?: string
+  /** Descrição da última movimentação. */
+  ultimaMovimentacaoDesc?: string
   /** Esfera (Estadual/Trabalhista/Federal). */
   esfera?: string
   esfera_diario?: string
