@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client'
 import { createExpeditClient } from '@/lib/expedit/expedit-client'
 import { createExpeditApiClient } from '@/lib/expedit/expedit-api-client'
 import { syncProcessosExpedit } from '@/lib/pipeline/sync-processos-expedit'
+import { syncDetalhesExpedit } from '@/lib/pipeline/sync-detalhes-expedit'
 import { syncPublicacoesExpedit } from '@/lib/pipeline/sync-publicacoes-expedit'
 import { syncDocumentosExpedit } from '@/lib/pipeline/sync-documentos-expedit'
 import { createDriveArchiver } from '@/lib/storage/drive-archive'
@@ -51,6 +52,17 @@ export const run = async (): Promise<number> => {
     // 1) Importa/atualiza processos via API oficial.
     const processosResult = await syncProcessosExpedit(prisma, apiClient)
     console.info('[expedit:sync] processos', { phase: processosResult.phase })
+
+    // 1b) Detalhes por processo (andamentos completos + documentos) via API oficial.
+    const detalhesMax = process.env.EXPEDIT_DETALHES_MAX
+      ? Number(process.env.EXPEDIT_DETALHES_MAX)
+      : undefined
+    const detalhesResult = await syncDetalhesExpedit(prisma, apiClient, {
+      archiveBaseDir: process.env.PIPELINE_ARCHIVE_DIR ?? './storage/archive',
+      driveArchiver: createDriveArchiver(),
+      maxProcessos: detalhesMax,
+    })
+    console.info('[expedit:sync] detalhes', { phase: detalhesResult.phase })
 
     // 2) Sincroniza publicações do intervalo (app-v2) + arquiva documentos.
     const range = buildRange()
