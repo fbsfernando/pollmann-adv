@@ -1,10 +1,12 @@
-import { getTarefas } from "./actions"
+import { getTarefas, getAdvogadosFiltro } from "./actions"
 import { ConcluirButton } from "./components/concluir-button"
+import { DirecionarSelect } from "./components/direcionar-select"
 import { TarefaStatusBadge } from "@/components/tarefa-status-badge"
 import Link from "next/link"
 import { Calendar, CalendarClock, AlertTriangle, CalendarDays } from "lucide-react"
 
 type Tarefa = Awaited<ReturnType<typeof getTarefas>>[number]
+type Advogado = Awaited<ReturnType<typeof getAdvogadosFiltro>>[number]
 
 const startOfToday = () => {
   const d = new Date()
@@ -40,7 +42,7 @@ function classify(tarefas: Tarefa[]) {
   return { atrasadas, hoje, proximos, futuras, semPrazo }
 }
 
-function TarefaRow({ t }: { t: Tarefa }) {
+function TarefaRow({ t, advogados }: { t: Tarefa; advogados: Advogado[] }) {
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-border/40 last:border-0 hover:bg-muted/30 transition-colors">
       <div className="min-w-0 flex-1">
@@ -64,7 +66,10 @@ function TarefaRow({ t }: { t: Tarefa }) {
           <p className="text-xs text-muted-foreground/80 mt-1 line-clamp-1">{t.descricao}</p>
         )}
       </div>
-      <ConcluirButton tarefaId={t.id} />
+      <div className="flex items-center gap-2 shrink-0">
+        {advogados.length > 0 && <DirecionarSelect tarefaId={t.id} advogados={advogados} />}
+        <ConcluirButton tarefaId={t.id} />
+      </div>
     </div>
   )
 }
@@ -74,11 +79,13 @@ function Section({
   icon: Icon,
   tone,
   tarefas,
+  advogados,
 }: {
   title: string
   icon: typeof Calendar
   tone: string
   tarefas: Tarefa[]
+  advogados: Advogado[]
 }) {
   if (tarefas.length === 0) return null
   return (
@@ -92,7 +99,7 @@ function Section({
       </div>
       <div>
         {tarefas.map((t) => (
-          <TarefaRow key={t.id} t={t} />
+          <TarefaRow key={t.id} t={t} advogados={advogados} />
         ))}
       </div>
     </div>
@@ -100,7 +107,7 @@ function Section({
 }
 
 export default async function AgendaPage() {
-  const tarefas = await getTarefas()
+  const [tarefas, advogados] = await Promise.all([getTarefas(), getAdvogadosFiltro()])
   const { atrasadas, hoje, proximos, futuras, semPrazo } = classify(tarefas)
 
   return (
@@ -124,11 +131,11 @@ export default async function AgendaPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          <Section title="Atrasadas" icon={AlertTriangle} tone="text-red-500" tarefas={atrasadas} />
-          <Section title="Hoje" icon={CalendarClock} tone="text-amber-500" tarefas={hoje} />
-          <Section title="Próximos 7 dias" icon={Calendar} tone="text-blue-500" tarefas={proximos} />
-          <Section title="Futuras" icon={CalendarDays} tone="text-muted-foreground" tarefas={futuras} />
-          <Section title="Sem prazo" icon={CalendarDays} tone="text-muted-foreground" tarefas={semPrazo} />
+          <Section title="Atrasadas" icon={AlertTriangle} tone="text-red-500" tarefas={atrasadas} advogados={advogados} />
+          <Section title="Hoje" icon={CalendarClock} tone="text-amber-500" tarefas={hoje} advogados={advogados} />
+          <Section title="Próximos 7 dias" icon={Calendar} tone="text-blue-500" tarefas={proximos} advogados={advogados} />
+          <Section title="Futuras" icon={CalendarDays} tone="text-muted-foreground" tarefas={futuras} advogados={advogados} />
+          <Section title="Sem prazo" icon={CalendarDays} tone="text-muted-foreground" tarefas={semPrazo} advogados={advogados} />
         </div>
       )}
     </div>

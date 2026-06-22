@@ -46,6 +46,32 @@ export async function getAdvogadosFiltro() {
   })
 }
 
+/**
+ * Direciona (reatribui) uma tarefa a outro usuário. Só ADMIN (Richard) — é como
+ * o trabalho importado do Expedit (sempre dele) é delegado aos advogados parceiros
+ * na nossa plataforma. O sync de compromissos não sobrescreve o responsável, então
+ * o direcionamento é preservado nos próximos ciclos.
+ */
+export async function direcionarTarefa(tarefaId: string, responsavelId: string) {
+  const session = await requireAuth()
+  if (session.user.role !== Role.ADMIN) return { error: "Acesso negado" }
+
+  const id = tarefaId.trim()
+  const respId = responsavelId.trim()
+  if (!id || !respId) return { error: "Dados inválidos" }
+
+  const responsavel = await prisma.user.findUnique({ where: { id: respId }, select: { id: true } })
+  if (!responsavel) return { error: "Responsável inválido" }
+
+  try {
+    await prisma.tarefa.update({ where: { id }, data: { responsavelId: respId } })
+    revalidatePath("/dashboard/agenda")
+    return { success: true }
+  } catch {
+    return { error: "Erro ao direcionar tarefa" }
+  }
+}
+
 export async function concluirTarefa(id: string) {
   const session = await requireAuth()
   const tarefaId = id.trim()
