@@ -1,16 +1,19 @@
 /**
- * Importação de processos do Expedit.
+ * Importação de processos via API REST oficial do Expedit (`/api/processos`).
  *
- * Pagina a listagem de processos do Expedit e, para cada um, garante o Cliente
- * (derivado dos nomes retornados; fallback "Não classificado") e faz upsert do
- * Processo. A idempotência usa `expeditId` quando disponível e cai para o número
- * CNJ (`numero`, único no schema) — assim um processo já cadastrado por outra
- * fonte (E-PROC) é vinculado em vez de duplicado.
+ * Pagina `listarProcessos`, garante o Cliente e faz upsert do Processo (idempotente
+ * por `expeditId` = id do ProcessoDTO, com fallback no número CNJ). Registra a
+ * última movimentação como Andamento — o histórico completo é sincronizado à parte
+ * por `sync-detalhes-expedit` (que usa o endpoint de andamentos por processo).
+ *
+ * O ProcessoDTO não traz o cliente diretamente (o campo `nome` é o nome de busca,
+ * tipicamente o advogado). Para processos NOVOS buscamos `dados-basicos` (campo
+ * `partes`) para derivar o cliente; processos já existentes preservam o cliente.
  */
 import { FonteAndamento, type PrismaClient } from '@prisma/client'
 
-import type { ExpeditClient } from '@/lib/expedit/expedit-client'
-import type { ExpeditProcesso } from '@/lib/expedit/expedit-types'
+import type { ExpeditApiClient } from '@/lib/expedit/expedit-api-client'
+import type { ProcessoDTO } from '@/lib/expedit/expedit-api-types'
 
 export type ProcessosSyncCounters = {
   collected: number
@@ -18,7 +21,6 @@ export type ProcessosSyncCounters = {
   processosCriados: number
   processosAtualizados: number
   ignorados: number
-  /** Andamentos (última movimentação) registrados/acumulados a partir da listagem. */
   andamentosRegistrados: number
 }
 
@@ -28,64 +30,42 @@ export type ProcessosSyncResult = {
 
 const CLIENTE_FALLBACK = 'Não classificado'
 
-/** Mapeia uma origem do Expedit para a sigla de tribunal usada no app. */
+/** Mapeia a descrição do tribunal do Expedit para a sigla usada no app. */
 export const normalizeTribunal = (raw?: string): string => {
   if (!raw) return 'OUTRO'
-  // Ex.: "TJSC 1° Grau - Eproc" → "TJSC"; "TRT12 - PJe" → "TRT12".
   const m = raw.toUpperCase().match(/\b(TJ[A-Z]{2}|TRT\d{1,2}|TRF\d|JF[A-Z]{2}|STJ|STF|TST)\b/)
   return m?.[1] ?? 'OUTRO'
 }
 
-const pickNumero = (p: ExpeditProcesso): string =>
-  String(p.numeroProcesso ?? p.numeroCNJ ?? p.numero_cnj ?? p.numero ?? '').trim()
-
-/** Tribunal vem como objeto `{id, descricao}` na listagem, ou string em outras telas. */
-const pickTribunalRaw = (p: ExpeditProcesso): string => {
-  const t = p.tribunal
-  if (t && typeof t === 'object') return String(t.descricao ?? '')
-  return String(t ?? p.origem ?? '')
+/** Esfera a partir da descrição/ramo do tribunal. */
+const inferEsfera = (descricao?: string): string | null => {
+  const d = (descricao ?? '').toUpperCase()
+  if (/TRT|TST|TRABALH/.test(d)) return 'Justiça do Trabalho'
+  if (/TRF|\bJF[A-Z]{2}|FEDERAL/.test(d)) return 'Justiça Federal'
+  if (/TJ[A-Z]{2}|ESTADUAL/.test(d)) return 'Justiça Estadual'
+  return null
 }
 
-const pickExpeditId = (p: ExpeditProcesso): string | null => {
-  const id = p.id
-  if (id === undefined || id === null || id === '') return null
-  return String(id)
+/** Primeiro nome de uma string "Autor x Réu" / lista separada por vírgula. */
+const primeiroNome = (raw?: string): string => {
+  const s = String(raw ?? '').trim()
+  if (!s) return CLIENTE_FALLBACK
+  return s.split(/\s+x\s+/i)[0]?.split(/\s*[;,]\s*/)[0]?.trim() || CLIENTE_FALLBACK
 }
 
-const pickClienteNome = (p: ExpeditProcesso): string => {
-  // Listagem `/processos/dados` traz `partes` ("Autor x Réu"); o detalhe traz nomeClientes.
-  const raw = String(
-    p.nomeClientes ?? p.nome_clientes ?? p.parte_principal ?? p.partes ?? ''
-  ).trim()
-  if (!raw) return CLIENTE_FALLBACK
-  // Usa o primeiro nome: separa por " x " (partes) e por vírgula/";" (listas).
-  const first = raw.split(/\s+x\s+/i)[0]?.split(/\s*[;,]\s*/)[0]?.trim()
-  return first || CLIENTE_FALLBACK
-}
-
-const pickEsfera = (p: ExpeditProcesso): string | null => {
-  const e = String(p.esfera ?? p.esfera_diario ?? '').trim()
-  return e || null
-}
-
-/** Converte "YYYY-MM-DD HH:mm:ss" (ou ISO) em Date; null se inválida/ausente. */
 const parseMovDate = (raw?: string): Date | null => {
   const s = String(raw ?? '').trim()
   if (!s) return null
-  const iso = s.includes('T') ? s : s.replace(' ', 'T')
-  const d = new Date(iso)
+  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'))
   return Number.isNaN(d.getTime()) ? null : d
 }
 
 export const syncProcessosExpedit = async (
   prisma: PrismaClient,
-  client: ExpeditClient,
-  opts?: { status?: string; limit?: number }
+  client: ExpeditApiClient,
+  opts?: { tamanho?: number }
 ): Promise<ProcessosSyncResult> => {
-  const processos = await client.listAllProcessos({
-    status: opts?.status ?? 'ATIVOS',
-    limit: opts?.limit ?? 100,
-  })
+  const processos = await client.listAllProcessos({ tamanho: opts?.tamanho ?? 100 })
 
   let clientesCriados = 0
   let processosCriados = 0
@@ -93,9 +73,7 @@ export const syncProcessosExpedit = async (
   let ignorados = 0
   let andamentosRegistrados = 0
 
-  // Cache de clientes por nome dentro da run (Cliente.nome não é único no schema).
   const clienteIdByNome = new Map<string, string>()
-
   const ensureCliente = async (nome: string): Promise<string> => {
     const cached = clienteIdByNome.get(nome)
     if (cached) return cached
@@ -110,26 +88,19 @@ export const syncProcessosExpedit = async (
     return created.id
   }
 
-  for (const p of processos) {
-    const numero = pickNumero(p)
+  for (const p of processos as ProcessoDTO[]) {
+    const numero = String(p.numeroProcesso ?? '').trim()
     if (!numero) {
       ignorados += 1
       continue
     }
 
-    const expeditId = pickExpeditId(p)
-    const tribunal = normalizeTribunal(pickTribunalRaw(p))
-    const esfera = pickEsfera(p)
-    const vara =
-      (typeof p.vara === 'string' && p.vara.trim()) ||
-      (typeof p.orgao === 'string' && p.orgao.trim()) ||
-      null
-    const area = (typeof p.area === 'string' && p.area.trim()) || null
+    const expeditId = p.id != null ? String(p.id) : null
+    const tribunalDesc = p.tribunal?.descricao
+    const tribunal = normalizeTribunal(tribunalDesc)
+    const esfera = inferEsfera(tribunalDesc)
 
-    const existing = await prisma.processo.findUnique({
-      where: { numero },
-      select: { id: true },
-    })
+    const existing = await prisma.processo.findUnique({ where: { numero }, select: { id: true } })
 
     let processoId: string
     if (existing) {
@@ -139,28 +110,34 @@ export const syncProcessosExpedit = async (
           expeditId: expeditId ?? undefined,
           tribunal,
           esfera: esfera ?? undefined,
-          vara: vara ?? undefined,
-          area: area ?? undefined,
         },
       })
       processoId = existing.id
       processosAtualizados += 1
     } else {
-      const clienteId = await ensureCliente(pickClienteNome(p))
+      // Deriva o cliente das partes (dados-básicos) só para processos novos.
+      let clienteNome = CLIENTE_FALLBACK
+      if (p.id != null) {
+        try {
+          const dados = await client.getDadosBasicos(p.id)
+          const partes = dados.find((d) => d.partes)?.partes
+          if (partes) clienteNome = primeiroNome(partes)
+        } catch {
+          // mantém fallback
+        }
+      }
+      const clienteId = await ensureCliente(clienteNome)
       const created = await prisma.processo.create({
-        data: { numero, expeditId, tribunal, esfera, vara, area, clienteId },
+        data: { numero, expeditId, tribunal, esfera, clienteId },
         select: { id: true },
       })
       processoId = created.id
       processosCriados += 1
     }
 
-    // Registra a última movimentação como Andamento. O Expedit v2 não expõe a
-    // timeline completa por processo (só a última), então o sync periódico
-    // ACUMULA novas movimentações ao longo do tempo. Idempotente por externalId
-    // (processo + timestamp da movimentação) — repetir o sync não duplica.
+    // Última movimentação → Andamento (idempotente por processo+timestamp).
     const movData = parseMovDate(p.ultimaMovimentacao)
-    const movDesc = String(p.ultimaMovimentacaoDesc ?? '').trim()
+    const movDesc = String(p.descricaoUltimaMovimentacao ?? '').trim()
     if (movData && movDesc && (expeditId || numero)) {
       const externalId = `expedit-mov:${expeditId ?? numero}:${movData.toISOString()}`
       await prisma.andamento.upsert({

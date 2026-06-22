@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 
 import { createExpeditClient } from '@/lib/expedit/expedit-client'
+import { createExpeditApiClient } from '@/lib/expedit/expedit-api-client'
 import { syncProcessosExpedit } from '@/lib/pipeline/sync-processos-expedit'
 import { syncPublicacoesExpedit } from '@/lib/pipeline/sync-publicacoes-expedit'
 import { syncDocumentosExpedit } from '@/lib/pipeline/sync-documentos-expedit'
@@ -25,7 +26,18 @@ export const run = async (): Promise<number> => {
   const prisma = new PrismaClient()
 
   try {
-    const client = createExpeditClient({
+    // Fonte primária: API REST oficial (JWT) para processos/andamentos.
+    const apiClient = createExpeditApiClient({
+      baseUrl: getEnv('EXPEDIT_API_BASE_URL', 'https://api.expedit.com.br'),
+      username: getEnv('EXPEDIT_EMAIL'),
+      password: getEnv('EXPEDIT_PASSWORD'),
+      timeout: 45000,
+      proxyUrl: process.env.EXPEDIT_PROXY_URL || undefined,
+    })
+
+    // app-v2 (sessão PHP): usado só onde a API oficial não tem equivalente —
+    // as publicações diárias por diário (a tela principal de tratamento).
+    const appV2Client = createExpeditClient({
       baseUrl: getEnv('EXPEDIT_BASE_URL', 'https://app-v2.expedit.com.br'),
       email: getEnv('EXPEDIT_EMAIL'),
       senha: getEnv('EXPEDIT_PASSWORD'),
@@ -36,19 +48,19 @@ export const run = async (): Promise<number> => {
     const archiveBaseDir = process.env.PIPELINE_ARCHIVE_DIR ?? './storage/archive'
     const driveArchiver = createDriveArchiver()
 
-    // 1) Importa/atualiza processos.
-    const processosResult = await syncProcessosExpedit(prisma, client)
+    // 1) Importa/atualiza processos via API oficial.
+    const processosResult = await syncProcessosExpedit(prisma, apiClient)
     console.info('[expedit:sync] processos', { phase: processosResult.phase })
 
-    // 2) Sincroniza publicações do intervalo + arquiva documentos.
+    // 2) Sincroniza publicações do intervalo (app-v2) + arquiva documentos.
     const range = buildRange()
-    const publicacoesResult = await syncPublicacoesExpedit(prisma, client, range, {
+    const publicacoesResult = await syncPublicacoesExpedit(prisma, appV2Client, range, {
       archiveBaseDir,
       driveArchiver,
     })
 
-    // 3) Sincroniza documentos juntados no intervalo + arquiva (local + Drive).
-    const documentosResult = await syncDocumentosExpedit(prisma, client, range, {
+    // 3) Sincroniza documentos juntados no intervalo (app-v2) + arquiva (local + Drive).
+    const documentosResult = await syncDocumentosExpedit(prisma, appV2Client, range, {
       archiveBaseDir,
       driveArchiver,
     })
