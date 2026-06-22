@@ -128,7 +128,7 @@ export type CompromissoDTO = {
   situacao?: string
   concluido?: boolean
   responsaveis?: ResponsavelDTO[]
-  tipoTarefa?: { id?: number; nome?: string; [key: string]: unknown }
+  tipoTarefa?: { id?: number; nome?: string; titulo?: string; [key: string]: unknown }
 }
 
 /** `GET /api/processos/{id}/agenda`. */

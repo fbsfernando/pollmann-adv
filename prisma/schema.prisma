@@ -230,6 +230,8 @@ enum PublicacaoStatus {
 // Normalmente criada ao "tratar" uma publicação.
 model Tarefa {
   id            String       @id @default(cuid())
+  /** Id do compromisso no Expedit, quando importada da API (idempotência). */
+  expeditId     String?      @unique @map("expedit_id")
   tipo          String
   titulo        String
   descricao     String?

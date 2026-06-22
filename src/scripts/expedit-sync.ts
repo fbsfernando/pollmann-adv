@@ -4,6 +4,7 @@ import { createExpeditClient } from '@/lib/expedit/expedit-client'
 import { createExpeditApiClient } from '@/lib/expedit/expedit-api-client'
 import { syncProcessosExpedit } from '@/lib/pipeline/sync-processos-expedit'
 import { syncDetalhesExpedit } from '@/lib/pipeline/sync-detalhes-expedit'
+import { syncCompromissosExpedit } from '@/lib/pipeline/sync-compromissos-expedit'
 import { syncPublicacoesExpedit } from '@/lib/pipeline/sync-publicacoes-expedit'
 import { syncDocumentosExpedit } from '@/lib/pipeline/sync-documentos-expedit'
 import { createDriveArchiver } from '@/lib/storage/drive-archive'
@@ -63,6 +64,12 @@ export const run = async (): Promise<number> => {
       maxProcessos: detalhesMax,
     })
     console.info('[expedit:sync] detalhes', { phase: detalhesResult.phase })
+
+    // 1c) Compromissos da agenda do Expedit → Tarefa.
+    const compromissosResult = await syncCompromissosExpedit(prisma, apiClient, {
+      maxProcessos: detalhesMax,
+    })
+    console.info('[expedit:sync] compromissos', { phase: compromissosResult.phase })
 
     // 2) Sincroniza publicações do intervalo (app-v2) + arquiva documentos.
     const range = buildRange()
