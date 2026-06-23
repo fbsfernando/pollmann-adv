@@ -76,7 +76,30 @@ export const syncCompromissosExpedit = async (
     }
   }
 
+  // Advogados para casar o nome ESCRITO no título/descrição do compromisso no
+  // Expedit — o Richard "linka" o destinatário escrevendo o nome no evento
+  // (combinado na reunião), já que no Expedit só há o usuário dele.
+  const advogados = users
+    .filter((u) => u.role === Role.ADVOGADO && u.name)
+    .map((u) => ({ id: u.id, name: u.name as string }))
+
+  const matchPorTexto = (texto: string): string | null => {
+    const t = norm(texto)
+    if (!t) return null
+    // nome completo primeiro; depois o primeiro nome com fronteira de palavra.
+    for (const a of advogados) if (t.includes(norm(a.name))) return a.id
+    for (const a of advogados) {
+      const first = norm(a.name).split(/\s+/)[0]
+      if (first.length >= 3 && new RegExp(`(^|[^a-z])${first}([^a-z]|$)`).test(t)) return a.id
+    }
+    return null
+  }
+
   const resolveResponsavel = (c: CompromissoDTO): string => {
+    // 1) Nome do advogado escrito no título/descrição do compromisso.
+    const byTexto = matchPorTexto(`${c.titulo ?? ''} ${c.descricao ?? ''}`)
+    if (byTexto) return byTexto
+    // 2) Responsável do Expedit (caso um dia haja mais usuários lá).
     for (const r of c.responsaveis ?? []) {
       const id = userByNome.get(norm(r.nome))
       if (id) return id
@@ -102,6 +125,8 @@ export const syncCompromissosExpedit = async (
 
     for (const c of compromissos) {
       const tarefaExpeditId = `expedit-comp:${c.id}`
+      // Direcionamento pelo nome no título/descrição (fonte de verdade do Expedit).
+      const byTexto = matchPorTexto(`${c.titulo ?? ''} ${c.descricao ?? ''}`)
       const responsavelId = resolveResponsavel(c)
       const prazoData = parseDate(c.dataFim) ?? parseDate(c.dataInicio)
       const status = mapStatus(c)
@@ -135,6 +160,9 @@ export const syncCompromissosExpedit = async (
           status: dataFields.status,
           processoId: dataFields.processoId,
           concluidoEm: dataFields.concluidoEm,
+          // Re-direciona só quando o título indica um advogado; senão preserva
+          // uma reatribuição manual feita na nossa plataforma.
+          ...(byTexto ? { responsavelId: byTexto } : {}),
         },
       })
 
