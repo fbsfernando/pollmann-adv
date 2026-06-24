@@ -8,6 +8,7 @@ import { StatusProcesso, Role, Prisma } from "@prisma/client"
 import { createEprocHttpClient, type Tribunal as ScraperTribunal } from "@/lib/scraper/eproc-http"
 import { syncAndamentos } from "@/lib/pipeline/sync-andamentos"
 import { createDriveArchiver } from "@/lib/storage/drive-archive"
+import { PROCESSOS_PAGE_SIZE } from "./constants"
 
 const processoSchema = z.object({
   numero: z.string().min(5, "Número do processo é obrigatório"),
@@ -19,8 +20,6 @@ const processoSchema = z.object({
   advogadoId: z.string().optional().nullable(),
   observacoes: z.string().optional().nullable(),
 })
-
-export const PROCESSOS_PAGE_SIZE = 50
 
 type ProcessoFilters = {
   search?: string

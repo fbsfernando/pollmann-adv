@@ -1,4 +1,5 @@
-import { getProcessos, countProcessos, getTribunais, PROCESSOS_PAGE_SIZE } from "./actions"
+import { getProcessos, countProcessos, getTribunais } from "./actions"
+import { PROCESSOS_PAGE_SIZE } from "./constants"
 import { ProcessoForm, EditProcessoButton } from "./components/processo-form"
 import { StatusBadge } from "@/components/status-badge"
 import {
