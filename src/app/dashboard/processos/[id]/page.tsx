@@ -16,6 +16,14 @@ import {
   Pencil,
 } from "lucide-react"
 
+// Fontes automáticas de andamento (não-manuais) recebem destaque visual na
+// timeline. Inclui EXPEDIT — fonte padrão após a migração para a API do Expedit.
+const FONTE_AUTOMATICA: Record<string, string> = {
+  SCRAPER: "Scraper",
+  EXPEDIT: "Expedit",
+  IMPORTACAO: "Importado",
+}
+
 function formatDateTime(date: Date | string) {
   return new Date(date).toLocaleDateString("pt-BR", {
     day: "2-digit",
@@ -177,7 +185,7 @@ export default async function ProcessoDetailPage({
                   {/* Node */}
                   <div className="relative flex flex-col items-center shrink-0 w-[15px] mt-[6px]">
                     <div className={`w-[15px] h-[15px] rounded-full border-2 bg-background z-10 ${
-                      andamento.fonte === "SCRAPER"
+                      FONTE_AUTOMATICA[andamento.fonte]
                         ? "border-accent"
                         : "border-border"
                     }`} />
@@ -190,10 +198,10 @@ export default async function ProcessoDetailPage({
                         <span className="text-[0.8rem] font-semibold text-foreground">
                           {andamento.tipo}
                         </span>
-                        {andamento.fonte === "SCRAPER" && (
+                        {FONTE_AUTOMATICA[andamento.fonte] && (
                           <span className="inline-flex items-center gap-1 text-[0.6rem] font-semibold uppercase tracking-wider text-accent/80 bg-accent/8 px-1.5 py-0.5 rounded-md">
                             <Bot className="w-2.5 h-2.5" />
-                            Scraper
+                            {FONTE_AUTOMATICA[andamento.fonte]}
                           </span>
                         )}
                       </div>

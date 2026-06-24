@@ -41,6 +41,18 @@ export async function getPublicacoes(filters?: {
   })
 }
 
+/** Diários distintos presentes nas publicações, para popular o filtro. */
+export async function getDiarios(): Promise<string[]> {
+  await requireGestao()
+  const rows = await prisma.publicacao.findMany({
+    where: { siglaDiario: { not: null } },
+    distinct: ["siglaDiario"],
+    select: { siglaDiario: true },
+    orderBy: { siglaDiario: "asc" },
+  })
+  return rows.map((r) => r.siglaDiario).filter((s): s is string => !!s)
+}
+
 export async function getAdvogados() {
   await requireGestao()
   return prisma.user.findMany({

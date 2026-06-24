@@ -1,4 +1,4 @@
-import { getProcessos } from "./actions"
+import { getProcessos, countProcessos, getTribunais, PROCESSOS_PAGE_SIZE } from "./actions"
 import { ProcessoForm, EditProcessoButton } from "./components/processo-form"
 import { StatusBadge } from "@/components/status-badge"
 import {
@@ -10,9 +10,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import Link from "next/link"
-import { Search, Plus, SlidersHorizontal, FileText } from "lucide-react"
+import { Search, SlidersHorizontal, FileText, ChevronLeft, ChevronRight } from "lucide-react"
 
-const TRIBUNAIS = ["TJSC", "TJRS", "TJPR", "TJSP", "TJRJ", "TJMG", "TJGO", "TJPA", "OUTRO"]
 const STATUS_LIST = [
   { value: "ATIVO", label: "Ativo" },
   { value: "ARQUIVADO", label: "Arquivado" },
@@ -23,11 +22,31 @@ const STATUS_LIST = [
 export default async function ProcessosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; tribunal?: string; status?: string }>
+  searchParams: Promise<{ q?: string; tribunal?: string; status?: string; page?: string }>
 }) {
-  const { q, tribunal, status } = await searchParams
-  const processos = await getProcessos({ search: q, tribunal, status })
+  const { q, tribunal, status, page: pageRaw } = await searchParams
+  const page = Math.max(1, Number(pageRaw) || 1)
+  const filtros = { search: q, tribunal, status }
+
+  const [processos, total, tribunais] = await Promise.all([
+    getProcessos({ ...filtros, page }),
+    countProcessos(filtros),
+    getTribunais(),
+  ])
   const hasFilters = !!(q || tribunal || status)
+
+  const totalPages = Math.max(1, Math.ceil(total / PROCESSOS_PAGE_SIZE))
+  const inicio = total === 0 ? 0 : (page - 1) * PROCESSOS_PAGE_SIZE + 1
+  const fim = (page - 1) * PROCESSOS_PAGE_SIZE + processos.length
+  const buildPageHref = (p: number) => {
+    const sp = new URLSearchParams()
+    if (q) sp.set("q", q)
+    if (tribunal) sp.set("tribunal", tribunal)
+    if (status) sp.set("status", status)
+    if (p > 1) sp.set("page", String(p))
+    const qs = sp.toString()
+    return `/dashboard/processos${qs ? `?${qs}` : ""}`
+  }
 
   return (
     <div className="space-y-6">
@@ -36,9 +55,9 @@ export default async function ProcessosPage({
         <div>
           <h1 className="font-heading text-2xl text-foreground">Processos</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {processos.length === 0
+            {total === 0
               ? "Nenhum processo"
-              : `${processos.length} processo${processos.length !== 1 ? "s" : ""}${hasFilters ? " encontrado" + (processos.length !== 1 ? "s" : "") : ""}`}
+              : `${total} processo${total !== 1 ? "s" : ""}${hasFilters ? " encontrado" + (total !== 1 ? "s" : "") : ""}`}
           </p>
         </div>
         <ProcessoForm />
@@ -52,6 +71,7 @@ export default async function ProcessosPage({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50" />
           <input
             name="q"
+            aria-label="Buscar por número ou cliente"
             placeholder="Número ou cliente..."
             defaultValue={q ?? ""}
             className="w-full h-8 pl-8 pr-3 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow"
@@ -60,17 +80,19 @@ export default async function ProcessosPage({
 
         <select
           name="tribunal"
+          aria-label="Filtrar por tribunal"
           defaultValue={tribunal ?? ""}
           className="h-8 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow cursor-pointer"
         >
           <option value="">Tribunal</option>
-          {TRIBUNAIS.map((t) => (
+          {tribunais.map((t) => (
             <option key={t} value={t}>{t}</option>
           ))}
         </select>
 
         <select
           name="status"
+          aria-label="Filtrar por status"
           defaultValue={status ?? ""}
           className="h-8 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow cursor-pointer"
         >
@@ -175,6 +197,48 @@ export default async function ProcessosPage({
               ))}
             </TableBody>
           </Table>
+        </div>
+      )}
+
+      {/* Paginação */}
+      {total > PROCESSOS_PAGE_SIZE && (
+        <div className="flex items-center justify-between gap-4 px-1">
+          <p className="text-xs text-muted-foreground tabular-nums">
+            Exibindo {inicio}–{fim} de {total}
+          </p>
+          <div className="flex items-center gap-1.5">
+            {page > 1 ? (
+              <Link
+                href={buildPageHref(page - 1)}
+                className="inline-flex items-center gap-1 h-8 px-3 rounded-lg border border-input bg-background text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                Anterior
+              </Link>
+            ) : (
+              <span className="inline-flex items-center gap-1 h-8 px-3 rounded-lg border border-border/50 text-xs font-medium text-muted-foreground/30 cursor-not-allowed">
+                <ChevronLeft className="w-3.5 h-3.5" />
+                Anterior
+              </span>
+            )}
+            <span className="text-xs text-muted-foreground tabular-nums px-2">
+              {page} / {totalPages}
+            </span>
+            {page < totalPages ? (
+              <Link
+                href={buildPageHref(page + 1)}
+                className="inline-flex items-center gap-1 h-8 px-3 rounded-lg border border-input bg-background text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                Próxima
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            ) : (
+              <span className="inline-flex items-center gap-1 h-8 px-3 rounded-lg border border-border/50 text-xs font-medium text-muted-foreground/30 cursor-not-allowed">
+                Próxima
+                <ChevronRight className="w-3.5 h-3.5" />
+              </span>
+            )}
+          </div>
         </div>
       )}
     </div>

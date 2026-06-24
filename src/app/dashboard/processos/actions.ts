@@ -20,15 +20,20 @@ const processoSchema = z.object({
   observacoes: z.string().optional().nullable(),
 })
 
-export async function getProcessos(filters?: {
+export const PROCESSOS_PAGE_SIZE = 50
+
+type ProcessoFilters = {
   search?: string
   tribunal?: string
   status?: string
   advogadoId?: string
   clienteId?: string
-}) {
-  const session = await requireAuth()
+}
 
+function buildProcessoWhere(
+  filters: ProcessoFilters | undefined,
+  session: Awaited<ReturnType<typeof requireAuth>>
+): Prisma.ProcessoWhereInput {
   const where: Prisma.ProcessoWhereInput = {}
 
   if (filters?.search) {
@@ -49,9 +54,23 @@ export async function getProcessos(filters?: {
 
   if (filters?.clienteId) where.clienteId = filters.clienteId
 
+  return where
+}
+
+export async function getProcessos(filters?: ProcessoFilters & { page?: number }) {
+  const session = await requireAuth()
+  const where = buildProcessoWhere(filters, session)
+
+  // Com `page` definido, pagina (50/página); sem ele, mantém o comportamento
+  // legado (lista até 500) usado pelos testes e por chamadas internas.
+  const page = filters?.page
+  const skip = page ? (Math.max(1, page) - 1) * PROCESSOS_PAGE_SIZE : 0
+  const take = page ? PROCESSOS_PAGE_SIZE : 500
+
   return prisma.processo.findMany({
     where,
-    take: 500,
+    skip,
+    take,
     orderBy: { updatedAt: "desc" },
     include: {
       cliente: true,
@@ -59,6 +78,24 @@ export async function getProcessos(filters?: {
       _count: { select: { andamentos: true } },
     },
   })
+}
+
+/** Total de processos para o filtro atual (paginação). */
+export async function countProcessos(filters?: ProcessoFilters) {
+  const session = await requireAuth()
+  const where = buildProcessoWhere(filters, session)
+  return prisma.processo.count({ where })
+}
+
+/** Tribunais distintos presentes na base, para popular o filtro. */
+export async function getTribunais(): Promise<string[]> {
+  await requireAuth()
+  const rows = await prisma.processo.findMany({
+    distinct: ["tribunal"],
+    select: { tribunal: true },
+    orderBy: { tribunal: "asc" },
+  })
+  return rows.map((r) => r.tribunal).filter(Boolean)
 }
 
 export async function getProcesso(id: string) {

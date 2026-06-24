@@ -14,6 +14,12 @@ const breadcrumbLabels: Record<string, string> = {
   dashboard: "Dashboard",
   clientes: "Clientes",
   processos: "Processos",
+  // "atualizacoes" fica sem rótulo de propósito: não há página em
+  // /dashboard/atualizacoes, então o segmento é pulado e o crumb final
+  // ("Atualizações") aponta para a rota real de publicações.
+  publicacoes: "Atualizações",
+  agenda: "Agenda",
+  usuarios: "Usuários",
 }
 
 function useBreadcrumbs(pathname: string) {
