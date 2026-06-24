@@ -55,6 +55,7 @@ export default async function PublicacoesPage({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50" />
           <input
             name="q"
+            aria-label="Buscar por número do processo ou conteúdo"
             placeholder="Número do processo ou conteúdo..."
             defaultValue={q ?? ""}
             className="w-full h-8 pl-8 pr-3 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow"
@@ -62,6 +63,7 @@ export default async function PublicacoesPage({
         </div>
         <select
           name="status"
+          aria-label="Filtrar por status"
           defaultValue={status || "PENDENTE"}
           className="h-8 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow cursor-pointer"
         >
@@ -72,6 +74,7 @@ export default async function PublicacoesPage({
         {diarios.length > 0 && (
           <select
             name="diario"
+            aria-label="Filtrar por diário"
             defaultValue={diario ?? ""}
             className="h-8 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow cursor-pointer"
           >

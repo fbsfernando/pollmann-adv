@@ -147,6 +147,7 @@ export default async function AgendaPage({
         {isAdmin && (
           <select
             name="responsavel"
+            aria-label="Filtrar por advogado"
             defaultValue={responsavel ?? ""}
             className="h-8 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow cursor-pointer"
           >
