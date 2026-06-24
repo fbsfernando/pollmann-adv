@@ -69,6 +69,13 @@ async function getAndamentosRecentes(userId: string, role: Role) {
   })
 }
 
+function saudacao() {
+  const h = new Date().getHours()
+  if (h < 12) return "Bom dia"
+  if (h < 18) return "Boa tarde"
+  return "Boa noite"
+}
+
 function formatDate(date: Date | string) {
   const d = new Date(date)
   const today = new Date()
@@ -153,7 +160,7 @@ export default async function DashboardPage() {
           {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })}
         </p>
         <h1 className="font-heading text-3xl text-foreground">
-          Bom dia, {firstName}.
+          {saudacao()}, {firstName}.
         </h1>
       </div>
 
