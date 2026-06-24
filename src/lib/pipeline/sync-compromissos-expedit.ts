@@ -65,7 +65,7 @@ export const syncCompromissosExpedit = async (
   let semResponsavelMapeado = 0
 
   // Mapa de Users por nome normalizado + admin de fallback (responsavel/criador).
-  const users = await prisma.user.findMany({ select: { id: true, name: true, role: true } })
+  const users = await prisma.user.findMany({ select: { id: true, name: true, role: true, ativo: true } })
   const userByNome = new Map<string, string>()
   for (const u of users) if (u.name) userByNome.set(norm(u.name), u.id)
   const admin = users.find((u) => u.role === Role.ADMIN) ?? users[0]
@@ -80,7 +80,7 @@ export const syncCompromissosExpedit = async (
   // Expedit — o Richard "linka" o destinatário escrevendo o nome no evento
   // (combinado na reunião), já que no Expedit só há o usuário dele.
   const advogados = users
-    .filter((u) => u.role === Role.ADVOGADO && u.name)
+    .filter((u) => u.role === Role.ADVOGADO && u.ativo && u.name)
     .map((u) => ({ id: u.id, name: u.name as string }))
 
   const matchPorTexto = (texto: string): string | null => {

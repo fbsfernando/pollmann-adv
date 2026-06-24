@@ -40,7 +40,7 @@ export async function getAdvogadosFiltro() {
   const session = await requireAuth()
   if (session.user.role !== Role.ADMIN) return []
   return prisma.user.findMany({
-    where: { role: Role.ADVOGADO },
+    where: { role: Role.ADVOGADO, ativo: true },
     orderBy: { name: "asc" },
     select: { id: true, name: true, email: true },
   })
