@@ -1,4 +1,4 @@
-import { getPublicacoes, getAdvogados } from "./actions"
+import { getPublicacoes, getAdvogados, getDiarios } from "./actions"
 import { TratarPublicacaoForm } from "./components/tratar-publicacao-form"
 import { PublicacaoStatusBadge } from "@/components/publicacao-status-badge"
 import {
@@ -28,9 +28,10 @@ export default async function PublicacoesPage({
   searchParams: Promise<{ q?: string; diario?: string; status?: string }>
 }) {
   const { q, diario, status } = await searchParams
-  const [publicacoes, advogados] = await Promise.all([
+  const [publicacoes, advogados, diarios] = await Promise.all([
     getPublicacoes({ search: q, diario, status }),
     getAdvogados(),
+    getDiarios(),
   ])
   const hasFilters = !!(q || diario || status)
 
@@ -61,14 +62,25 @@ export default async function PublicacoesPage({
         </div>
         <select
           name="status"
-          defaultValue={status ?? ""}
+          defaultValue={status || "PENDENTE"}
           className="h-8 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow cursor-pointer"
         >
-          <option value="">Status</option>
           {STATUS_LIST.map((s) => (
             <option key={s.value} value={s.value}>{s.label}</option>
           ))}
         </select>
+        {diarios.length > 0 && (
+          <select
+            name="diario"
+            defaultValue={diario ?? ""}
+            className="h-8 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow cursor-pointer"
+          >
+            <option value="">Diário</option>
+            {diarios.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        )}
         <button
           type="submit"
           className="h-8 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
@@ -139,7 +151,11 @@ export default async function PublicacoesPage({
                     {p.tipoComunicacao ?? <span className="text-muted-foreground/30">—</span>}
                   </TableCell>
                   <TableCell className="py-3 text-sm text-foreground/80 max-w-md">
-                    <span className="line-clamp-2">{p.conteudo}</span>
+                    <details className="group">
+                      <summary className="line-clamp-2 group-open:line-clamp-none cursor-pointer list-none [&::-webkit-details-marker]:hidden hover:text-foreground transition-colors">
+                        {p.conteudo}
+                      </summary>
+                    </details>
                     {p.inteiroTeorUrl && (
                       <a
                         href={p.inteiroTeorUrl}
