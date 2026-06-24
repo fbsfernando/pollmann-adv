@@ -14,19 +14,22 @@ datasource db {
 // AUTH — NextAuth v5 compatible + custom fields
 // ============================================================
 model User {
-  id           String    @id @default(cuid())
-  name         String?
-  email        String    @unique
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
   emailVerified DateTime? @map("email_verified")
-  image        String?
-  passwordHash String?   @map("password_hash")
-  role         Role      @default(ADVOGADO)
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  image         String?
+  passwordHash  String?   @map("password_hash")
+  role          Role      @default(ADVOGADO)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   accounts  Account[]
   sessions  Session[]
   processos Processo[] @relation("AdvogadoProcessos")
+
+  tarefasResponsavel Tarefa[] @relation("TarefaResponsavel")
+  tarefasCriadas     Tarefa[] @relation("TarefaCriador")
 
   @@map("users")
 }
@@ -96,22 +99,26 @@ model Cliente {
 }
 
 model Processo {
-  id          String          @id @default(cuid())
-  numero      String          @unique
+  id          String         @id @default(cuid())
+  numero      String         @unique
+  expeditId   String?        @unique @map("expedit_id")
   tribunal    String
+  esfera      String?
   vara        String?
   area        String?
-  status      StatusProcesso  @default(ATIVO)
-  clienteId   String          @map("cliente_id")
-  advogadoId  String?         @map("advogado_id")
+  status      StatusProcesso @default(ATIVO)
+  clienteId   String         @map("cliente_id")
+  advogadoId  String?        @map("advogado_id")
   observacoes String?
-  createdAt   DateTime        @default(now()) @map("created_at")
-  updatedAt   DateTime        @updatedAt @map("updated_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
 
-  cliente    Cliente     @relation(fields: [clienteId], references: [id], onDelete: Restrict)
-  advogado   User?       @relation("AdvogadoProcessos", fields: [advogadoId], references: [id], onDelete: SetNull)
-  andamentos Andamento[]
-  documentos Documento[]
+  cliente     Cliente      @relation(fields: [clienteId], references: [id], onDelete: Restrict)
+  advogado    User?        @relation("AdvogadoProcessos", fields: [advogadoId], references: [id], onDelete: SetNull)
+  andamentos  Andamento[]
+  documentos  Documento[]
+  publicacoes Publicacao[]
+  tarefas     Tarefa[]
 
   @@index([clienteId])
   @@index([advogadoId])
@@ -151,6 +158,7 @@ enum FonteAndamento {
   MANUAL
   SCRAPER
   IMPORTACAO
+  EXPEDIT
 }
 
 model Documento {
@@ -173,4 +181,87 @@ model Documento {
   @@index([processoId])
   @@index([processoId, externalId])
   @@map("documentos")
+}
+
+// ============================================================
+// EXPEDIT — Publicações (Atualizações) + Tarefas (Agenda)
+// ============================================================
+
+// Publicação capturada do Expedit. Pode existir sem processo cadastrado
+// (Richard quer visualizar publicações de processos ainda não importados),
+// por isso processoId é opcional.
+model Publicacao {
+  id                   String           @id @default(cuid())
+  externalId           String           @unique @map("external_id") // hash_publicacao do Expedit
+  processoId           String?          @map("processo_id")
+  numProcesso          String           @map("num_processo")
+  siglaDiario          String?          @map("sigla_diario")
+  nomeDiario           String?          @map("nome_diario")
+  esfera               String?
+  uf                   String?
+  comarca              String?
+  orgao                String?
+  vara                 String?
+  dataPublicacao       DateTime         @map("data_publicacao")
+  dataDisponibilizacao DateTime?        @map("data_disponibilizacao")
+  tipoComunicacao      String?          @map("tipo_comunicacao")
+  conteudo             String
+  inteiroTeorUrl       String?          @map("inteiro_teor_url")
+  insightIa            String?          @map("insight_ia")
+  status               PublicacaoStatus @default(PENDENTE)
+  createdAt            DateTime         @default(now()) @map("created_at")
+
+  processo Processo? @relation(fields: [processoId], references: [id], onDelete: SetNull)
+  tarefas  Tarefa[]
+
+  @@index([numProcesso])
+  @@index([status])
+  @@index([dataPublicacao(sort: Desc)])
+  @@map("publicacoes")
+}
+
+enum PublicacaoStatus {
+  PENDENTE
+  TRATADA
+  DESCARTADA
+}
+
+// Tarefa/compromisso direcionada a um advogado responsável (agenda).
+// Normalmente criada ao "tratar" uma publicação.
+model Tarefa {
+  id            String       @id @default(cuid())
+  /** Id do compromisso no Expedit, quando importada da API (idempotência). */
+  expeditId     String?      @unique @map("expedit_id")
+  tipo          String
+  titulo        String
+  descricao     String?
+  dataInicio    DateTime?    @map("data_inicio")
+  prazoData     DateTime?    @map("prazo_data")
+  prioridade    String?
+  status        TarefaStatus @default(PENDENTE)
+  processoId    String?      @map("processo_id")
+  publicacaoId  String?      @map("publicacao_id")
+  responsavelId String       @map("responsavel_id")
+  criadoPorId   String       @map("criado_por_id")
+  concluidoEm   DateTime?    @map("concluido_em")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  processo    Processo?   @relation(fields: [processoId], references: [id], onDelete: SetNull)
+  publicacao  Publicacao? @relation(fields: [publicacaoId], references: [id], onDelete: SetNull)
+  responsavel User        @relation("TarefaResponsavel", fields: [responsavelId], references: [id], onDelete: Cascade)
+  criadoPor   User        @relation("TarefaCriador", fields: [criadoPorId], references: [id], onDelete: Cascade)
+
+  @@index([responsavelId])
+  @@index([status])
+  @@index([prazoData])
+  @@index([publicacaoId])
+  @@map("tarefas")
+}
+
+enum TarefaStatus {
+  PENDENTE
+  EM_ANDAMENTO
+  CONCLUIDO
+  CANCELADO
 }
