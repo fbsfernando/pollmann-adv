@@ -1,41 +1,45 @@
 import { prisma } from "@/lib/db"
 import { requireAuth } from "@/lib/auth/guards"
-import { FileText, Users, Clock, Zap } from "lucide-react"
-import { Role, StatusProcesso } from "@prisma/client"
+import { FileText, Users, Clock, Bell, AlertTriangle, ListTodo } from "lucide-react"
+import { Role, StatusProcesso, TarefaStatus, PublicacaoStatus } from "@prisma/client"
+import type { LucideIcon } from "lucide-react"
 import Link from "next/link"
 import { StatusBadge } from "@/components/status-badge"
 
 async function getDashboardStats(userId: string, role: Role) {
-  const processoFilter =
-    role === Role.ADVOGADO ? { advogadoId: userId } : {}
+  const isAdmin = role === Role.ADMIN
+  const processoFilter = isAdmin ? {} : { advogadoId: userId }
+  const tarefaFilter = isAdmin ? {} : { responsavelId: userId }
+  const tarefasAbertas = {
+    status: { in: [TarefaStatus.PENDENTE, TarefaStatus.EM_ANDAMENTO] },
+  }
 
-  const seteDiasAtras = new Date()
-  seteDiasAtras.setDate(seteDiasAtras.getDate() - 7)
+  const inicioHoje = new Date()
+  inicioHoje.setHours(0, 0, 0, 0)
 
   const [
     totalProcessos,
     processosAtivos,
     totalClientes,
-    andamentosRecentes,
-    andamentosScraperCount,
+    publicacoesPendentes,
+    tarefasPendentes,
+    tarefasAtrasadas,
   ] = await Promise.all([
     prisma.processo.count({ where: processoFilter }),
     prisma.processo.count({
       where: { ...processoFilter, status: StatusProcesso.ATIVO },
     }),
-    role === Role.ADVOGADO
-      ? prisma.cliente.count({
+    isAdmin
+      ? prisma.cliente.count()
+      : prisma.cliente.count({
           where: { processos: { some: { advogadoId: userId } } },
-        })
-      : prisma.cliente.count(),
-    prisma.andamento.count({
-      where: {
-        processo: processoFilter,
-        data: { gte: seteDiasAtras },
-      },
-    }),
-    prisma.andamento.count({
-      where: { processo: processoFilter, fonte: "SCRAPER" },
+        }),
+    isAdmin
+      ? prisma.publicacao.count({ where: { status: PublicacaoStatus.PENDENTE } })
+      : Promise.resolve(0),
+    prisma.tarefa.count({ where: { ...tarefaFilter, ...tarefasAbertas } }),
+    prisma.tarefa.count({
+      where: { ...tarefaFilter, ...tarefasAbertas, prazoData: { lt: inicioHoje } },
     }),
   ])
 
@@ -43,9 +47,93 @@ async function getDashboardStats(userId: string, role: Role) {
     totalProcessos,
     processosAtivos,
     totalClientes,
-    andamentosRecentes,
-    andamentosScraperCount,
+    publicacoesPendentes,
+    tarefasPendentes,
+    tarefasAtrasadas,
   }
+}
+
+type StatCard = {
+  label: string
+  value: number
+  sub: string
+  icon: LucideIcon
+  color: string
+  bg: string
+  href: string
+}
+
+/** Cards do topo, orientados à ação e ao papel do usuário. */
+function buildStatCards(
+  s: Awaited<ReturnType<typeof getDashboardStats>>,
+  role: Role
+): StatCard[] {
+  const processosAtivos: StatCard = {
+    label: role === Role.ADMIN ? "Processos ativos" : "Meus processos ativos",
+    value: s.processosAtivos,
+    sub: `de ${s.totalProcessos} totais`,
+    icon: FileText,
+    color: "text-blue-600",
+    bg: "bg-blue-500/8",
+    href: "/dashboard/processos?status=ATIVO",
+  }
+  const tarefasAtrasadas: StatCard = {
+    label: "Tarefas atrasadas",
+    value: s.tarefasAtrasadas,
+    sub: s.tarefasAtrasadas > 0 ? "requerem ação" : "tudo em dia",
+    icon: AlertTriangle,
+    color: "text-red-600",
+    bg: "bg-red-500/8",
+    href: "/dashboard/agenda",
+  }
+
+  if (role === Role.ADMIN) {
+    return [
+      {
+        label: "Publicações pendentes",
+        value: s.publicacoesPendentes,
+        sub: s.publicacoesPendentes > 0 ? "aguardando triagem" : "fila vazia",
+        icon: Bell,
+        color: "text-amber-600",
+        bg: "bg-amber-500/8",
+        href: "/dashboard/atualizacoes/publicacoes?status=PENDENTE",
+      },
+      tarefasAtrasadas,
+      processosAtivos,
+      {
+        label: "Clientes",
+        value: s.totalClientes,
+        sub: "cadastrados",
+        icon: Users,
+        color: "text-violet-600",
+        bg: "bg-violet-500/8",
+        href: "/dashboard/clientes",
+      },
+    ]
+  }
+
+  return [
+    {
+      label: "Tarefas pendentes",
+      value: s.tarefasPendentes,
+      sub: "na sua agenda",
+      icon: ListTodo,
+      color: "text-blue-600",
+      bg: "bg-blue-500/8",
+      href: "/dashboard/agenda",
+    },
+    tarefasAtrasadas,
+    processosAtivos,
+    {
+      label: "Clientes",
+      value: s.totalClientes,
+      sub: "com processo seu",
+      icon: Users,
+      color: "text-violet-600",
+      bg: "bg-violet-500/8",
+      href: "/dashboard/processos",
+    },
+  ]
 }
 
 async function getAndamentosRecentes(userId: string, role: Role) {
@@ -88,50 +176,6 @@ function formatDate(date: Date | string) {
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
 }
 
-function formatDateFull(date: Date | string) {
-  return new Date(date).toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  })
-}
-
-const stats_config = [
-  {
-    key: "processosAtivos",
-    label: "Processos ativos",
-    icon: FileText,
-    subKey: "totalProcessos",
-    subLabel: (v: number) => `de ${v} totais`,
-    color: "text-blue-600",
-    bg: "bg-blue-500/8",
-  },
-  {
-    key: "totalClientes",
-    label: "Clientes",
-    icon: Users,
-    subLabel: () => "cadastrados",
-    color: "text-violet-600",
-    bg: "bg-violet-500/8",
-  },
-  {
-    key: "andamentosRecentes",
-    label: "Andamentos (7 dias)",
-    icon: Clock,
-    subLabel: () => "movimentações recentes",
-    color: "text-amber-600",
-    bg: "bg-amber-500/8",
-  },
-  {
-    key: "andamentosScraperCount",
-    label: "Via scraper",
-    icon: Zap,
-    subLabel: () => "coletados automaticamente",
-    color: "text-emerald-600",
-    bg: "bg-emerald-500/8",
-  },
-]
-
 export default async function DashboardPage() {
   const session = await requireAuth()
   const userId = session.user.id
@@ -144,13 +188,7 @@ export default async function DashboardPage() {
     getAndamentosRecentes(userId, role),
   ])
 
-  const statValues: Record<string, number> = {
-    processosAtivos: stats.processosAtivos,
-    totalClientes: stats.totalClientes,
-    andamentosRecentes: stats.andamentosRecentes,
-    andamentosScraperCount: stats.andamentosScraperCount,
-    totalProcessos: stats.totalProcessos,
-  }
+  const cards = buildStatCards(stats, role)
 
   return (
     <div className="space-y-10">
@@ -166,15 +204,13 @@ export default async function DashboardPage() {
 
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats_config.map((s) => {
+        {cards.map((s) => {
           const Icon = s.icon
-          const value = statValues[s.key]
-          const subValue = s.subKey ? statValues[s.subKey] : undefined
-
           return (
-            <div
-              key={s.key}
-              className="rounded-xl border border-border bg-card p-5 shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-card-hover)] transition-shadow duration-200"
+            <Link
+              key={s.label}
+              href={s.href}
+              className="group rounded-xl border border-border bg-card p-5 shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-card-hover)] hover:border-border/80 transition-all duration-200"
             >
               <div className="flex items-start justify-between mb-4">
                 <p className="text-xs font-medium text-muted-foreground leading-tight">
@@ -186,13 +222,11 @@ export default async function DashboardPage() {
               </div>
               <div className="space-y-0.5">
                 <p className="text-[2rem] font-semibold stat-number text-foreground leading-none">
-                  {value}
+                  {s.value}
                 </p>
-                <p className="text-xs text-muted-foreground/70">
-                  {s.subLabel(subValue ?? value)}
-                </p>
+                <p className="text-xs text-muted-foreground/70">{s.sub}</p>
               </div>
-            </div>
+            </Link>
           )
         })}
       </div>

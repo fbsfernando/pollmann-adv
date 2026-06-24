@@ -20,6 +20,7 @@ import {
 interface SidebarProps {
   open: boolean
   onClose: () => void
+  counts?: Record<string, number>
 }
 
 const navItems = [
@@ -64,7 +65,7 @@ const navItems = [
   },
 ]
 
-export function Sidebar({ open, onClose }: SidebarProps) {
+export function Sidebar({ open, onClose, counts }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const { isAdmin, name, role, handleSignOut } = useAuth()
@@ -141,6 +142,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             const isActive = item.exact
               ? pathname === item.href
               : pathname.startsWith(item.href)
+            const count = counts?.[item.href] ?? 0
 
             return (
               <Link
@@ -164,9 +166,19 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   )}
                 />
                 <span className="flex-1">{item.label}</span>
-                {isActive && (
+                {count > 0 ? (
+                  <span
+                    className={cn(
+                      "inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[0.6rem] font-semibold tabular-nums",
+                      "bg-red-500/15 text-red-400"
+                    )}
+                    title={`${count} pendente${count !== 1 ? "s" : ""}`}
+                  >
+                    {count > 99 ? "99+" : count}
+                  </span>
+                ) : isActive ? (
                   <ChevronRight className="w-3 h-3 text-sidebar-foreground/30" />
-                )}
+                ) : null}
               </Link>
             )
           })}
