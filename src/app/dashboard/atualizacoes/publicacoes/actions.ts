@@ -56,7 +56,7 @@ export async function getDiarios(): Promise<string[]> {
 export async function getAdvogados() {
   await requireGestao()
   return prisma.user.findMany({
-    where: { role: Role.ADVOGADO },
+    where: { role: Role.ADVOGADO, ativo: true },
     orderBy: { name: "asc" },
     select: { id: true, name: true, email: true },
   })

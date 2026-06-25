@@ -43,6 +43,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         })
 
         if (!user || !user.passwordHash) return null
+        // Usuário desativado não autentica.
+        if (!user.ativo) return null
 
         const valid = bcrypt.compareSync(
           credentials.password as string,
