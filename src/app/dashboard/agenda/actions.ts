@@ -7,6 +7,11 @@ import { Role, TarefaStatus, Prisma } from "@prisma/client"
 
 export async function getTarefas(filters?: {
   responsavelId?: string
+  status?: string
+  tipo?: string
+  processoNumero?: string
+  from?: Date
+  to?: Date
   incluirConcluidas?: boolean
 }) {
   const session = await requireAuth()
@@ -20,13 +25,33 @@ export async function getTarefas(filters?: {
     where.responsavelId = filters.responsavelId
   }
 
-  if (!filters?.incluirConcluidas) {
+  // Status específico tem prioridade; senão, abre só não-concluídas (a menos
+  // que incluirConcluidas).
+  const statusValido =
+    !!filters?.status && (Object.values(TarefaStatus) as string[]).includes(filters.status)
+  if (statusValido) {
+    where.status = filters!.status as TarefaStatus
+  } else if (!filters?.incluirConcluidas) {
     where.status = { in: [TarefaStatus.PENDENTE, TarefaStatus.EM_ANDAMENTO] }
+  }
+
+  if (filters?.tipo) where.tipo = filters.tipo
+  if (filters?.processoNumero) {
+    where.processo = { numero: { contains: filters.processoNumero, mode: "insensitive" } }
+  }
+
+  // Intervalo de datas (views de calendário): [from, to) por prazoData, com
+  // fallback em dataInicio. `to` é exclusivo (fim do último dia da grade).
+  if (filters?.from && filters?.to) {
+    where.OR = [
+      { prazoData: { gte: filters.from, lt: filters.to } },
+      { AND: [{ prazoData: null }, { dataInicio: { gte: filters.from, lt: filters.to } }] },
+    ]
   }
 
   return prisma.tarefa.findMany({
     where,
-    take: 500,
+    take: 1000,
     orderBy: [{ prazoData: "asc" }, { createdAt: "desc" }],
     include: {
       processo: { select: { id: true, numero: true } },
@@ -44,6 +69,20 @@ export async function getAdvogadosFiltro() {
     orderBy: { name: "asc" },
     select: { id: true, name: true, email: true },
   })
+}
+
+/** Tipos de tarefa distintos (para o filtro), com escopo por papel. */
+export async function getTiposTarefa(): Promise<string[]> {
+  const session = await requireAuth()
+  const where: Prisma.TarefaWhereInput = {}
+  if (session.user.role === Role.ADVOGADO) where.responsavelId = session.user.id
+  const rows = await prisma.tarefa.findMany({
+    where,
+    distinct: ["tipo"],
+    select: { tipo: true },
+    orderBy: { tipo: "asc" },
+  })
+  return rows.map((r) => r.tipo).filter(Boolean)
 }
 
 /**
