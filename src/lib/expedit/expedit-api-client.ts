@@ -21,6 +21,11 @@ import type {
   PartesDto,
   ProcessoAgendaDTO,
   ProcessoDTO,
+  ProcessoAssuntoQuantidadeDTO,
+  ProcessoMarcadorQuantidadeDTO,
+  ProcessoFinanceiroGrupoDTO,
+  ProcessoFinanceiroCategoriaTotalDTO,
+  ProcessoDuracaoPorEstadoResponseDTO,
 } from '@/lib/expedit/expedit-api-types'
 
 const USER_AGENT =
@@ -51,6 +56,12 @@ export interface ExpeditApiClient {
   getAgenda(processoId: number): Promise<ProcessoAgendaDTO | null>
   getDadosBasicos(processoId: number): Promise<DadosBasicosDTO[]>
   downloadDocumento(url: string): Promise<ExpeditDocumentoDownload | null>
+  // Indicadores (dashboards prontos).
+  getIndicadorAssuntos(): Promise<ProcessoAssuntoQuantidadeDTO[]>
+  getIndicadorMarcadores(): Promise<ProcessoMarcadorQuantidadeDTO[]>
+  getIndicadorFinanceiro(): Promise<ProcessoFinanceiroGrupoDTO[]>
+  getIndicadorFinanceiroCategorias(): Promise<ProcessoFinanceiroCategoriaTotalDTO[]>
+  getIndicadorDuracao(): Promise<ProcessoDuracaoPorEstadoResponseDTO | null>
 }
 
 export const createExpeditApiClient = (config: ExpeditApiConfig): ExpeditApiClient => {
@@ -176,6 +187,26 @@ export const createExpeditApiClient = (config: ExpeditApiConfig): ExpeditApiClie
         const m = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
         const filename = m ? decodeURIComponent(m[1].replace(/['"]/g, '')) : 'documento.pdf'
         return { content, contentType, filename }
+      } catch {
+        return null
+      }
+    },
+
+    getIndicadorAssuntos() {
+      return getArray<ProcessoAssuntoQuantidadeDTO>('/api/processos/indicadores/assuntos')
+    },
+    getIndicadorMarcadores() {
+      return getArray<ProcessoMarcadorQuantidadeDTO>('/api/processos/indicadores/marcadores')
+    },
+    getIndicadorFinanceiro() {
+      return getArray<ProcessoFinanceiroGrupoDTO>('/api/processos/indicadores/financeiro')
+    },
+    getIndicadorFinanceiroCategorias() {
+      return getArray<ProcessoFinanceiroCategoriaTotalDTO>('/api/processos/indicadores/financeiro/categorias')
+    },
+    async getIndicadorDuracao() {
+      try {
+        return await getJson<ProcessoDuracaoPorEstadoResponseDTO>('/api/processos/indicadores/duracao-por-estado')
       } catch {
         return null
       }

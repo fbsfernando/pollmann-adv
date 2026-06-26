@@ -146,6 +146,36 @@ export type PartesDto = {
   dtCreated?: string
 }
 
+// ── Indicadores (dashboards prontos do Expedit) ───────────────────────────
+export type ProcessoAssuntoQuantidadeDTO = { id?: number; nome?: string; quantidadeProcessos?: number }
+export type ProcessoMarcadorQuantidadeDTO = {
+  id?: number
+  nome?: string
+  cor?: string
+  quantidadeProcessos?: number
+}
+export type ProcessoFinanceiroGrupoDTO = {
+  grupoId?: string
+  grupoNome?: string
+  quantidadeProcessos?: number
+  valorCausaTotal?: number
+  valorCondenacaoTotal?: number
+  valorContratoTotal?: number
+  garantiaTotal?: number
+  proveitoEconomicoTotal?: number
+}
+export type ProcessoFinanceiroCategoriaTotalDTO = {
+  categoriaId?: number
+  categoriaNome?: string
+  quantidadeLancamentos?: number
+  total?: number
+}
+export type ProcessoDuracaoEstadoDTO = { estado?: string; duracaoMediaMeses?: number; quantidade?: number }
+export type ProcessoDuracaoPorEstadoResponseDTO = {
+  ativos?: ProcessoDuracaoEstadoDTO[]
+  encerrados?: ProcessoDuracaoEstadoDTO[]
+}
+
 /** `GET /api/dados-basicos/listarDadosBasicosDoProcesso/{id}`. */
 export type DadosBasicosDTO = {
   id?: number

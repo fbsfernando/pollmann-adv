@@ -12,6 +12,7 @@ import {
   Bell,
   Calendar,
   UserCog,
+  BarChart3,
   X,
   LogOut,
   ChevronRight,
@@ -55,6 +56,13 @@ const navItems = [
     label: "Agenda",
     icon: Calendar,
     exact: false,
+  },
+  {
+    href: "/dashboard/indicadores",
+    label: "Indicadores",
+    icon: BarChart3,
+    exact: false,
+    adminOnly: true,
   },
   {
     href: "/dashboard/usuarios",
