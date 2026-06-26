@@ -107,7 +107,14 @@ model Processo {
   esfera      String?
   vara        String?
   area        String?
+  fase        String?
   status      StatusProcesso @default(ATIVO)
+  // Enriquecimento vindo do Expedit (ProcessoDTO).
+  segredoJustica Boolean  @default(false) @map("segredo_justica")
+  possivelBaixa  Boolean  @default(false) @map("possivel_baixa")
+  assuntos       String[]
+  marcadores     Json? // [{ nome, cor }] — para exibição com cor
+  marcadorNomes  String[] @map("marcador_nomes") // espelho dos nomes, para filtro
   clienteId   String         @map("cliente_id")
   advogadoId  String?        @map("advogado_id")
   observacoes String?

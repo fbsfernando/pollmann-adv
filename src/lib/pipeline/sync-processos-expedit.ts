@@ -100,6 +100,19 @@ export const syncProcessosExpedit = async (
     const tribunal = normalizeTribunal(tribunalDesc)
     const esfera = inferEsfera(tribunalDesc)
 
+    // Enriquecimento do ProcessoDTO (fase, flags, assuntos, marcadores).
+    const fase = p.fase ? String(p.fase) : null
+    const segredoJustica = Number(p.segredoJustica) === 1
+    const possivelBaixa = Number(p.possivelBaixa) === 1
+    const assuntos = (p.assuntos ?? [])
+      .map((a) => String(a?.nome ?? '').trim())
+      .filter(Boolean)
+    const marcadores = (p.marcadores ?? [])
+      .map((m) => ({ nome: String(m?.nome ?? '').trim(), cor: m?.cor ? String(m.cor) : null }))
+      .filter((m) => m.nome)
+    const marcadorNomes = marcadores.map((m) => m.nome)
+    const enriquecimento = { fase, segredoJustica, possivelBaixa, assuntos, marcadores, marcadorNomes }
+
     const existing = await prisma.processo.findUnique({ where: { numero }, select: { id: true } })
 
     let processoId: string
@@ -110,6 +123,7 @@ export const syncProcessosExpedit = async (
           expeditId: expeditId ?? undefined,
           tribunal,
           esfera: esfera ?? undefined,
+          ...enriquecimento,
         },
       })
       processoId = existing.id
@@ -128,7 +142,7 @@ export const syncProcessosExpedit = async (
       }
       const clienteId = await ensureCliente(clienteNome)
       const created = await prisma.processo.create({
-        data: { numero, expeditId, tribunal, esfera, clienteId },
+        data: { numero, expeditId, tribunal, esfera, clienteId, ...enriquecimento },
         select: { id: true },
       })
       processoId = created.id

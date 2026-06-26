@@ -25,6 +25,8 @@ type ProcessoFilters = {
   search?: string
   tribunal?: string
   status?: string
+  assunto?: string
+  marcador?: string
   advogadoId?: string
   clienteId?: string
 }
@@ -44,6 +46,8 @@ function buildProcessoWhere(
   }
   if (filters?.tribunal) where.tribunal = filters.tribunal
   if (filters?.status) where.status = filters.status as StatusProcesso
+  if (filters?.assunto) where.assuntos = { has: filters.assunto }
+  if (filters?.marcador) where.marcadorNomes = { has: filters.marcador }
 
   if (session.user.role === Role.ADVOGADO) {
     where.advogadoId = session.user.id
@@ -95,6 +99,28 @@ export async function getTribunais(): Promise<string[]> {
     orderBy: { tribunal: "asc" },
   })
   return rows.map((r) => r.tribunal).filter(Boolean)
+}
+
+/** Assuntos distintos presentes na base (para o filtro), escopo por papel. */
+export async function getAssuntos(): Promise<string[]> {
+  const session = await requireAuth()
+  const where: Prisma.ProcessoWhereInput =
+    session.user.role === Role.ADVOGADO ? { advogadoId: session.user.id } : {}
+  const rows = await prisma.processo.findMany({ where, select: { assuntos: true } })
+  const set = new Set<string>()
+  for (const r of rows) for (const a of r.assuntos) set.add(a)
+  return [...set].sort((a, b) => a.localeCompare(b, "pt-BR"))
+}
+
+/** Marcadores distintos (nomes) presentes na base, escopo por papel. */
+export async function getMarcadores(): Promise<string[]> {
+  const session = await requireAuth()
+  const where: Prisma.ProcessoWhereInput =
+    session.user.role === Role.ADVOGADO ? { advogadoId: session.user.id } : {}
+  const rows = await prisma.processo.findMany({ where, select: { marcadorNomes: true } })
+  const set = new Set<string>()
+  for (const r of rows) for (const m of r.marcadorNomes) set.add(m)
+  return [...set].sort((a, b) => a.localeCompare(b, "pt-BR"))
 }
 
 export async function getProcesso(id: string) {

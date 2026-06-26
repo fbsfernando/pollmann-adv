@@ -1,6 +1,7 @@
-import { getProcessos, countProcessos, getTribunais } from "./actions"
+import { getProcessos, countProcessos, getTribunais, getAssuntos, getMarcadores } from "./actions"
 import { PROCESSOS_PAGE_SIZE } from "./constants"
 import { ProcessoForm, EditProcessoButton } from "./components/processo-form"
+import { MarcadorChips } from "./components/marcador-chips"
 import { StatusBadge } from "@/components/status-badge"
 import {
   Table,
@@ -11,7 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import Link from "next/link"
-import { Search, SlidersHorizontal, FileText, ChevronLeft, ChevronRight } from "lucide-react"
+import { Search, SlidersHorizontal, FileText, ChevronLeft, ChevronRight, Lock } from "lucide-react"
 
 const STATUS_LIST = [
   { value: "ATIVO", label: "Ativo" },
@@ -23,18 +24,27 @@ const STATUS_LIST = [
 export default async function ProcessosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; tribunal?: string; status?: string; page?: string }>
+  searchParams: Promise<{
+    q?: string
+    tribunal?: string
+    status?: string
+    assunto?: string
+    marcador?: string
+    page?: string
+  }>
 }) {
-  const { q, tribunal, status, page: pageRaw } = await searchParams
+  const { q, tribunal, status, assunto, marcador, page: pageRaw } = await searchParams
   const page = Math.max(1, Number(pageRaw) || 1)
-  const filtros = { search: q, tribunal, status }
+  const filtros = { search: q, tribunal, status, assunto, marcador }
 
-  const [processos, total, tribunais] = await Promise.all([
+  const [processos, total, tribunais, assuntos, marcadores] = await Promise.all([
     getProcessos({ ...filtros, page }),
     countProcessos(filtros),
     getTribunais(),
+    getAssuntos(),
+    getMarcadores(),
   ])
-  const hasFilters = !!(q || tribunal || status)
+  const hasFilters = !!(q || tribunal || status || assunto || marcador)
 
   const totalPages = Math.max(1, Math.ceil(total / PROCESSOS_PAGE_SIZE))
   const inicio = total === 0 ? 0 : (page - 1) * PROCESSOS_PAGE_SIZE + 1
@@ -44,6 +54,8 @@ export default async function ProcessosPage({
     if (q) sp.set("q", q)
     if (tribunal) sp.set("tribunal", tribunal)
     if (status) sp.set("status", status)
+    if (assunto) sp.set("assunto", assunto)
+    if (marcador) sp.set("marcador", marcador)
     if (p > 1) sp.set("page", String(p))
     const qs = sp.toString()
     return `/dashboard/processos${qs ? `?${qs}` : ""}`
@@ -103,6 +115,34 @@ export default async function ProcessosPage({
           ))}
         </select>
 
+        {assuntos.length > 0 && (
+          <select
+            name="assunto"
+            aria-label="Filtrar por assunto"
+            defaultValue={assunto ?? ""}
+            className="h-8 max-w-44 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow cursor-pointer"
+          >
+            <option value="">Assunto</option>
+            {assuntos.map((a) => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
+        )}
+
+        {marcadores.length > 0 && (
+          <select
+            name="marcador"
+            aria-label="Filtrar por marcador"
+            defaultValue={marcador ?? ""}
+            className="h-8 max-w-44 rounded-lg border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 transition-shadow cursor-pointer"
+          >
+            <option value="">Marcador</option>
+            {marcadores.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        )}
+
         <button
           type="submit"
           className="h-8 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
@@ -157,12 +197,18 @@ export default async function ProcessosPage({
                   className="hover:bg-muted/30 transition-colors border-b border-border/40 last:border-0"
                 >
                   <TableCell className="py-3">
-                    <Link
-                      href={`/dashboard/processos/${p.id}`}
-                      className="font-mono text-[0.78rem] text-foreground/80 hover:text-foreground font-medium transition-colors"
-                    >
-                      {p.numero}
-                    </Link>
+                    <div className="flex items-center gap-1.5">
+                      <Link
+                        href={`/dashboard/processos/${p.id}`}
+                        className="font-mono text-[0.78rem] text-foreground/80 hover:text-foreground font-medium transition-colors"
+                      >
+                        {p.numero}
+                      </Link>
+                      {p.segredoJustica && (
+                        <Lock className="w-3 h-3 text-amber-600 shrink-0" aria-label="Segredo de justiça" />
+                      )}
+                    </div>
+                    <MarcadorChips marcadores={p.marcadores} className="mt-1" />
                   </TableCell>
                   <TableCell className="py-3">
                     <Link
