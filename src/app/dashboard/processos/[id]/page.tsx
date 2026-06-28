@@ -2,6 +2,7 @@ import { notFound } from "next/navigation"
 import { getProcesso } from "../actions"
 import { EditProcessoButton } from "../components/processo-form"
 import { SyncProcessoButton } from "../components/sync-processo-button"
+import { MarcadorChips } from "../components/marcador-chips"
 import { StatusBadge } from "@/components/status-badge"
 import Link from "next/link"
 import {
@@ -13,7 +14,8 @@ import {
   Download,
   ExternalLink,
   Bot,
-  Pencil,
+  Lock,
+  AlertTriangle,
 } from "lucide-react"
 
 // Fontes automáticas de andamento (não-manuais) recebem destaque visual na
@@ -74,6 +76,37 @@ export default async function ProcessoDetailPage({
           <p className="text-sm text-muted-foreground mt-1">
             {[processo.area, processo.vara].filter(Boolean).join(" · ") || "Sem vara/área definida"}
           </p>
+          {(processo.fase || processo.segredoJustica || processo.possivelBaixa) && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              {processo.fase && (
+                <span className="inline-flex items-center text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
+                  {processo.fase}
+                </span>
+              )}
+              {processo.segredoJustica && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-500/10 px-2 py-0.5 rounded-md">
+                  <Lock className="w-3 h-3" />
+                  Segredo de justiça
+                </span>
+              )}
+              {processo.possivelBaixa && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-red-500/10 px-2 py-0.5 rounded-md">
+                  <AlertTriangle className="w-3 h-3" />
+                  Possível baixa
+                </span>
+              )}
+            </div>
+          )}
+          <MarcadorChips marcadores={processo.marcadores} className="mt-2" max={8} />
+          {processo.assuntos.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1 mt-2">
+              {processo.assuntos.map((a) => (
+                <span key={a} className="text-[0.62rem] text-muted-foreground/70 bg-muted/60 px-1.5 py-0.5 rounded" title={a}>
+                  {a}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
