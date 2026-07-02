@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Menu } from "lucide-react"
 import Link from "next/link"
 import { ChevronRight } from "lucide-react"
+import { NotificationBell } from "./notification-bell"
 
 interface HeaderProps {
   onMenuClick: () => void
@@ -80,6 +81,10 @@ export function Header({ onMenuClick }: HeaderProps) {
           )
         })}
       </nav>
+
+      <div className="ml-auto flex items-center">
+        <NotificationBell />
+      </div>
     </header>
   )
 }
