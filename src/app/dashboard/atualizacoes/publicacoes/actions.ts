@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { requireGestao } from "@/lib/auth/guards"
+import { notificarTarefaDirecionada } from "@/lib/notificacoes"
 import { PublicacaoStatus, Role, TarefaStatus, Prisma } from "@prisma/client"
 
 export async function getPublicacoes(filters?: {
@@ -110,8 +111,8 @@ export async function tratarPublicacao(formData: FormData) {
       : null
 
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.tarefa.create({
+    const novaTarefa = await prisma.$transaction(async (tx) => {
+      const t = await tx.tarefa.create({
         data: {
           tipo,
           titulo: `${tipo} — processo ${publicacao.numProcesso}`,
@@ -124,12 +125,23 @@ export async function tratarPublicacao(formData: FormData) {
           responsavelId,
           criadoPorId: session.user.id,
         },
+        select: { id: true, titulo: true },
       })
 
       await tx.publicacao.update({
         where: { id: publicacao.id },
         data: { status: PublicacaoStatus.TRATADA },
       })
+
+      return t
+    })
+
+    // Notifica o advogado responsável (já validado como ADVOGADO acima).
+    await notificarTarefaDirecionada(prisma, {
+      responsavelId,
+      tarefaId: novaTarefa.id,
+      titulo: novaTarefa.titulo,
+      processoNumero: publicacao.numProcesso,
     })
 
     revalidatePath("/dashboard/atualizacoes/publicacoes")

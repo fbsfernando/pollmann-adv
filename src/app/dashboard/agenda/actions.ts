@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { requireAuth } from "@/lib/auth/guards"
+import { notificarTarefaDirecionada } from "@/lib/notificacoes"
 import { Role, TarefaStatus, Prisma } from "@prisma/client"
 
 export async function getTarefas(filters?: {
@@ -99,11 +100,24 @@ export async function direcionarTarefa(tarefaId: string, responsavelId: string) 
   const respId = responsavelId.trim()
   if (!id || !respId) return { error: "Dados inválidos" }
 
-  const responsavel = await prisma.user.findUnique({ where: { id: respId }, select: { id: true } })
+  const responsavel = await prisma.user.findUnique({ where: { id: respId }, select: { id: true, role: true } })
   if (!responsavel) return { error: "Responsável inválido" }
 
   try {
-    await prisma.tarefa.update({ where: { id }, data: { responsavelId: respId } })
+    const tarefa = await prisma.tarefa.update({
+      where: { id },
+      data: { responsavelId: respId },
+      select: { id: true, titulo: true, processo: { select: { numero: true } } },
+    })
+    // Notifica o advogado que recebeu a tarefa (não a si mesmo).
+    if (responsavel.role === Role.ADVOGADO && respId !== session.user.id) {
+      await notificarTarefaDirecionada(prisma, {
+        responsavelId: respId,
+        tarefaId: tarefa.id,
+        titulo: tarefa.titulo,
+        processoNumero: tarefa.processo?.numero ?? null,
+      })
+    }
     revalidatePath("/dashboard/agenda")
     return { success: true }
   } catch {

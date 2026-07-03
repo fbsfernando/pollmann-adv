@@ -31,6 +31,7 @@ model User {
 
   tarefasResponsavel Tarefa[] @relation("TarefaResponsavel")
   tarefasCriadas     Tarefa[] @relation("TarefaCriador")
+  notificacoes       Notificacao[]
 
   @@map("users")
 }
@@ -272,4 +273,23 @@ enum TarefaStatus {
   EM_ANDAMENTO
   CONCLUIDO
   CANCELADO
+}
+
+// Notificação in-app para um usuário (ex.: tarefa direcionada a um advogado parceiro).
+model Notificacao {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  tipo      String // TAREFA_DIRECIONADA | PRAZO_PROXIMO | ...
+  titulo    String
+  descricao String?
+  link      String?
+  tarefaId  String?  @map("tarefa_id")
+  lida      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, lida])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("notificacoes")
 }

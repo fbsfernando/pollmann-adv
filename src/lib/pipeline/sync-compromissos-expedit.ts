@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto'
 
 import { Role, TarefaStatus, type PrismaClient } from '@prisma/client'
 
+import { notificarTarefaDirecionada } from '@/lib/notificacoes'
 import type { ExpeditApiClient } from '@/lib/expedit/expedit-api-client'
 import type {
   CompromissoDTO,
@@ -117,6 +118,7 @@ export const syncCompromissosExpedit = async (
   const advogados = users
     .filter((u) => u.role === Role.ADVOGADO && u.ativo && u.name)
     .map((u) => ({ id: u.id, name: u.name as string }))
+  const advogadoIds = new Set(advogados.map((a) => a.id))
 
   const matchPorTexto = (texto: string): string | null => {
     const t = norm(texto)
@@ -144,9 +146,14 @@ export const syncCompromissosExpedit = async (
     return { id: admin.id, byTexto: null }
   }
 
-  const upsertEvento = async (externalId: string, f: EventoFields, byTexto: string | null) => {
+  const upsertEvento = async (
+    externalId: string,
+    f: EventoFields,
+    byTexto: string | null,
+    processoNumero?: string
+  ) => {
     const existing = await prisma.tarefa.findUnique({ where: { expeditId: externalId }, select: { id: true } })
-    await prisma.tarefa.upsert({
+    const tarefa = await prisma.tarefa.upsert({
       where: { expeditId: externalId },
       create: { expeditId: externalId, criadoPorId: admin.id, ...f },
       update: {
@@ -162,14 +169,27 @@ export const syncCompromissosExpedit = async (
         // uma reatribuição manual feita na nossa plataforma.
         ...(byTexto ? { responsavelId: byTexto } : {}),
       },
+      select: { id: true },
     })
-    if (existing) tarefasAtualizadas += 1
-    else tarefasCriadas += 1
+    if (existing) {
+      tarefasAtualizadas += 1
+    } else {
+      tarefasCriadas += 1
+      // Notifica o advogado quando uma tarefa NOVA é criada direcionada a ele.
+      if (advogadoIds.has(f.responsavelId)) {
+        await notificarTarefaDirecionada(prisma, {
+          responsavelId: f.responsavelId,
+          tarefaId: tarefa.id,
+          titulo: f.titulo,
+          processoNumero: processoNumero ?? null,
+        })
+      }
+    }
   }
 
   const processos = await prisma.processo.findMany({
     where: { expeditId: { not: null } },
-    select: { id: true, expeditId: true },
+    select: { id: true, expeditId: true, numero: true },
     orderBy: { updatedAt: 'desc' },
     take: deps?.maxProcessos,
   })
@@ -201,7 +221,8 @@ export const syncCompromissosExpedit = async (
           responsavelId,
           concluidoEm: cc.concluido ? prazoData : null,
         },
-        byTexto
+        byTexto,
+        proc.numero
       )
     }
 
@@ -227,7 +248,8 @@ export const syncCompromissosExpedit = async (
           responsavelId,
           concluidoEm: status === TarefaStatus.CONCLUIDO ? data : null,
         },
-        byTexto
+        byTexto,
+        proc.numero
       )
     }
 
@@ -258,7 +280,8 @@ export const syncCompromissosExpedit = async (
           responsavelId,
           concluidoEm: null,
         },
-        byTexto
+        byTexto,
+        proc.numero
       )
     }
   }
