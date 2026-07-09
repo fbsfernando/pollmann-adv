@@ -41,7 +41,9 @@ const run = async (): Promise<number> => {
   const authUrl = oauth2.generateAuthUrl({
     access_type: 'offline', // necessário para receber refresh_token
     prompt: 'consent', // força emissão de refresh_token mesmo em re-consentimento
-    scope: DRIVE_SCOPES,
+    // Inclui o Calendar no mesmo consentimento: o refresh token resultante serve
+    // tanto para o arquivamento no Drive quanto para o sync da agenda Google.
+    scope: [...DRIVE_SCOPES, 'https://www.googleapis.com/auth/calendar.events'],
   })
 
   console.info('\n1) Abra esta URL no navegador logado na conta do Richard:\n')
