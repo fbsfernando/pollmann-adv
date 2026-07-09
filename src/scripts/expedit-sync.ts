@@ -8,6 +8,7 @@ import { syncCompromissosExpedit } from '@/lib/pipeline/sync-compromissos-expedi
 import { syncPublicacoesExpedit } from '@/lib/pipeline/sync-publicacoes-expedit'
 import { syncDocumentosExpedit } from '@/lib/pipeline/sync-documentos-expedit'
 import { runLembretesPrazo } from '@/lib/pipeline/lembretes-prazo'
+import { runCalendarSync } from '@/lib/google/calendar-sync'
 import { createDriveArchiver } from '@/lib/storage/drive-archive'
 
 const getEnv = (key: string, fallback?: string): string => {
@@ -91,6 +92,16 @@ export const run = async (): Promise<number> => {
       console.info('[expedit:sync] lembretes', lembretes)
     } catch (e) {
       console.error('[expedit:sync] lembretes falharam', {
+        error: e instanceof Error ? e.message : 'unknown-error',
+      })
+    }
+
+    // 5) Espelha a agenda no Google Calendar (opt-in; não derruba o sync).
+    try {
+      const gcal = await runCalendarSync(prisma)
+      console.info('[expedit:sync] google-calendar', gcal)
+    } catch (e) {
+      console.error('[expedit:sync] google-calendar falhou', {
         error: e instanceof Error ? e.message : 'unknown-error',
       })
     }

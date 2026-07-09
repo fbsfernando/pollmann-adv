@@ -253,6 +253,8 @@ model Tarefa {
   responsavelId String       @map("responsavel_id")
   criadoPorId   String       @map("criado_por_id")
   concluidoEm   DateTime?    @map("concluido_em")
+  /** Id do evento espelhado no Google Calendar (sync unidirecional). */
+  googleEventId String?      @map("google_event_id")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
 
