@@ -10,7 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import Link from "next/link"
-import { Search, SlidersHorizontal, Bell, ExternalLink } from "lucide-react"
+import { Search, SlidersHorizontal, Bell, ExternalLink, Sparkles } from "lucide-react"
 
 const STATUS_LIST = [
   { value: "PENDENTE", label: "Pendentes" },
@@ -154,6 +154,12 @@ export default async function PublicacoesPage({
                     {p.tipoComunicacao ?? <span className="text-muted-foreground/30">—</span>}
                   </TableCell>
                   <TableCell className="py-3 text-sm text-foreground/80 max-w-md">
+                    {p.insightIa && (
+                      <p className="flex items-start gap-1.5 text-xs text-violet-800 bg-violet-500/8 border border-violet-500/15 rounded-md px-2 py-1.5 mb-1.5">
+                        <Sparkles className="w-3 h-3 shrink-0 mt-0.5 text-violet-600" />
+                        <span>{p.insightIa}</span>
+                      </p>
+                    )}
                     <details className="group">
                       <summary className="line-clamp-2 group-open:line-clamp-none cursor-pointer list-none [&::-webkit-details-marker]:hidden hover:text-foreground transition-colors">
                         {p.conteudo}
