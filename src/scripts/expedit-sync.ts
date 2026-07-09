@@ -7,6 +7,7 @@ import { syncDetalhesExpedit } from '@/lib/pipeline/sync-detalhes-expedit'
 import { syncCompromissosExpedit } from '@/lib/pipeline/sync-compromissos-expedit'
 import { syncPublicacoesExpedit } from '@/lib/pipeline/sync-publicacoes-expedit'
 import { syncDocumentosExpedit } from '@/lib/pipeline/sync-documentos-expedit'
+import { runLembretesPrazo } from '@/lib/pipeline/lembretes-prazo'
 import { createDriveArchiver } from '@/lib/storage/drive-archive'
 
 const getEnv = (key: string, fallback?: string): string => {
@@ -83,6 +84,16 @@ export const run = async (): Promise<number> => {
       archiveBaseDir,
       driveArchiver,
     })
+
+    // 4) Lembretes de prazo (não derruba o sync em caso de falha).
+    try {
+      const lembretes = await runLembretesPrazo(prisma)
+      console.info('[expedit:sync] lembretes', lembretes)
+    } catch (e) {
+      console.error('[expedit:sync] lembretes falharam', {
+        error: e instanceof Error ? e.message : 'unknown-error',
+      })
+    }
 
     console.info('[expedit:sync] completed', {
       runId: publicacoesResult.runId,
