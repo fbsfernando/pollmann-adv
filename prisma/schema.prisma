@@ -119,6 +119,10 @@ model Processo {
   clienteId   String         @map("cliente_id")
   advogadoId  String?        @map("advogado_id")
   observacoes String?
+  // Rotação real das janelas de sync (EXPEDIT_DETALHES_MAX): cada ciclo visita
+  // primeiro os processos há mais tempo sem visita (nulls first).
+  detalhesSyncedAt DateTime? @map("detalhes_synced_at")
+  agendaSyncedAt   DateTime? @map("agenda_synced_at")
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
@@ -134,6 +138,8 @@ model Processo {
   @@index([advogadoId])
   @@index([tribunal])
   @@index([status])
+  @@index([detalhesSyncedAt])
+  @@index([agendaSyncedAt])
   @@map("processos")
 }
 

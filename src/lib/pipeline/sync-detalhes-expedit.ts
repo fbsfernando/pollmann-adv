@@ -59,17 +59,27 @@ export const syncDetalhesExpedit = async (
   let archiveFailures = 0
   let driveFailures = 0
 
-  // Processos importados do Expedit (priorizando os atualizados mais recentemente).
+  // Processos importados do Expedit, em rotação real: visita primeiro os que
+  // estão há mais tempo sem detalhamento (nulls first). O `updatedAt desc`
+  // anterior NÃO rotacionava — o sync de processos reescreve updatedAt de
+  // todos a cada ciclo, então a janela de `maxProcessos` pegava sempre os
+  // mesmos; os demais nunca recebiam a timeline completa.
   const processos = await prisma.processo.findMany({
     where: { expeditId: { not: null } },
     select: { id: true, numero: true, expeditId: true, cliente: { select: { nome: true } } },
-    orderBy: { updatedAt: 'desc' },
+    orderBy: { detalhesSyncedAt: { sort: 'asc', nulls: 'first' } },
     take: deps?.maxProcessos,
   })
 
   for (const proc of processos) {
     const expeditId = Number(proc.expeditId)
-    if (!Number.isFinite(expeditId)) continue
+    if (!Number.isFinite(expeditId)) {
+      // Carimba mesmo sem id válido, senão o processo ocupa a janela para sempre.
+      await prisma.processo
+        .update({ where: { id: proc.id }, data: { detalhesSyncedAt: new Date() } })
+        .catch(() => {})
+      continue
+    }
 
     // ── Andamentos (timeline completa) ──────────────────────────────────────
     const andamentos = await client.listarAndamentos(expeditId).catch(() => [])
@@ -171,6 +181,11 @@ export const syncDetalhesExpedit = async (
       })
       documentosPersistidos += 1
     }
+
+    // Marca a visita — é o que faz a janela de `maxProcessos` rotacionar.
+    await prisma.processo
+      .update({ where: { id: proc.id }, data: { detalhesSyncedAt: new Date() } })
+      .catch(() => {})
   }
 
   return {
