@@ -16,6 +16,7 @@ import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from 'undici'
 
 import type {
   ExpeditDocumentoItem,
+  ExpeditIntimacaoItem,
   ExpeditPaginatedResponse,
   ExpeditProcesso,
   ExpeditProcessoDetalhe,
@@ -113,6 +114,10 @@ export interface ExpeditClient {
   listDocumentos(range: DataRange, page?: number, limit?: number): Promise<ExpeditDocumentoItem[]>
   /** Lista TODOS os documentos do intervalo, paginando por `totalPages`. */
   listAllDocumentos(range: DataRange, limit?: number): Promise<ExpeditDocumentoItem[]>
+  /** Lista uma página de intimações eletrônicas (módulo Atualizações › Intimações). */
+  listIntimacoes(page?: number, limit?: number): Promise<ExpeditPaginatedResponse<ExpeditIntimacaoItem>>
+  /** Lista TODAS as intimações, paginando por `totalPages`. */
+  listAllIntimacoes(limit?: number): Promise<ExpeditIntimacaoItem[]>
   /** Baixa um documento do Expedit a partir de uma URL absoluta/relativa. */
   downloadDocumento(url: string): Promise<ExpeditDocumentoDownload | null>
 }
@@ -296,6 +301,30 @@ export const createExpeditClient = (config: ExpeditConfig): ExpeditClient => {
         const res = await getJson<ExpeditPaginatedResponse<ExpeditDocumentoItem>>(
           `/atualizacao/documentos/lista?${qs.toString()}`
         )
+        all.push(...(res.data ?? []))
+        totalPages = res.totalPages ?? 1
+        page += 1
+      } while (page <= totalPages && page < 1000)
+      return all
+    },
+
+    async listIntimacoes(page = 1, limit = 100) {
+      const qs = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+        perPage: String(limit),
+      })
+      return getJson<ExpeditPaginatedResponse<ExpeditIntimacaoItem>>(
+        `/atualizacao/intimacoes/lista?${qs.toString()}`
+      )
+    },
+
+    async listAllIntimacoes(limit = 100) {
+      const all: ExpeditIntimacaoItem[] = []
+      let page = 1
+      let totalPages = 1
+      do {
+        const res = await this.listIntimacoes(page, limit)
         all.push(...(res.data ?? []))
         totalPages = res.totalPages ?? 1
         page += 1

@@ -6,6 +6,7 @@ import { syncProcessosExpedit } from '@/lib/pipeline/sync-processos-expedit'
 import { syncDetalhesExpedit } from '@/lib/pipeline/sync-detalhes-expedit'
 import { syncCompromissosExpedit } from '@/lib/pipeline/sync-compromissos-expedit'
 import { syncPublicacoesExpedit } from '@/lib/pipeline/sync-publicacoes-expedit'
+import { syncIntimacoesExpedit } from '@/lib/pipeline/sync-intimacoes-expedit'
 import { syncDocumentosExpedit } from '@/lib/pipeline/sync-documentos-expedit'
 import { runLembretesPrazo } from '@/lib/pipeline/lembretes-prazo'
 import { runCalendarSync } from '@/lib/google/calendar-sync'
@@ -80,6 +81,10 @@ export const run = async (): Promise<number> => {
       driveArchiver,
     })
 
+    // 2b) Sincroniza intimações eletrônicas (app-v2) — traz data de ciência e limite.
+    const intimacoesResult = await syncIntimacoesExpedit(prisma, appV2Client)
+    console.info('[expedit:sync] intimacoes', { phase: intimacoesResult.phase })
+
     // 3) Sincroniza documentos juntados no intervalo (app-v2) + arquiva (local + Drive).
     const documentosResult = await syncDocumentosExpedit(prisma, appV2Client, range, {
       archiveBaseDir,
@@ -111,6 +116,7 @@ export const run = async (): Promise<number> => {
       range: { from: range.from.toISOString(), to: range.to.toISOString() },
       processos: processosResult.phase,
       publicacoes: publicacoesResult.phase,
+      intimacoes: intimacoesResult.phase,
       documentos: documentosResult.phase,
       timestamp: new Date().toISOString(),
     })
