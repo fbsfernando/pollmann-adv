@@ -106,9 +106,13 @@ export type ExpeditPublicacoesDiarioResponse = {
 
 /** Item individual do diário (publicação). */
 export type ExpeditPublicacaoItem = {
+  /** Id interno (Mongo) — é o `ref` usado nos endpoints de triagem (concluir/descartar). */
+  _id?: string
   /** Idempotência — hash único da publicação. */
   hash_publicacao?: string
   cod_publicacao?: string | number
+  /** Flag de tratamento no Expedit: 1 = tratada/concluída. */
+  lido?: number | boolean
   /** Número CNJ do processo referente à publicação. */
   num_processo?: string
   numero_processo?: string

@@ -209,6 +209,8 @@ model Documento {
 model Publicacao {
   id                   String           @id @default(cuid())
   externalId           String           @unique @map("external_id") // hash_publicacao do Expedit
+  /** `_id` interno do Expedit — ref dos endpoints de triagem (write-back). */
+  expeditRef           String?          @map("expedit_ref")
   processoId           String?          @map("processo_id")
   numProcesso          String           @map("num_processo")
   siglaDiario          String?          @map("sigla_diario")

@@ -118,6 +118,14 @@ export interface ExpeditClient {
   listIntimacoes(page?: number, limit?: number): Promise<ExpeditPaginatedResponse<ExpeditIntimacaoItem>>
   /** Lista TODAS as intimações, paginando por `totalPages`. */
   listAllIntimacoes(limit?: number): Promise<ExpeditIntimacaoItem[]>
+  /** Marca uma publicação como tratada no Expedit (idempotente; ref = `_id` do item). */
+  concluirPublicacao(ref: string): Promise<boolean>
+  /** Altera o status de triagem de uma publicação no Expedit, com motivo auditável. */
+  setPublicacaoStatus(
+    ref: string,
+    status: 'DESCARTADA' | 'TRATADA' | 'NAO_TRATADA',
+    motivo: string
+  ): Promise<boolean>
   /** Baixa um documento do Expedit a partir de uma URL absoluta/relativa. */
   downloadDocumento(url: string): Promise<ExpeditDocumentoDownload | null>
 }
@@ -203,12 +211,25 @@ export const createExpeditClient = (config: ExpeditConfig): ExpeditClient => {
     authenticated = true
   }
 
+  const isJsonResponse = (r: Response): boolean =>
+    (r.headers.get('content-type') ?? '').includes('json')
+
   const getJson = async <T>(path: string): Promise<T> => {
     await authenticate()
     const url = path.startsWith('http') ? path : `${baseUrl}${path}`
-    const response = await doFetch(url)
+    let response = await doFetch(url)
+    // Sessão PHP expira em runs longos: endpoint JSON devolvendo HTML é o
+    // sintoma. Re-loga uma vez e repete, em vez de quebrar no response.json().
+    if (response.ok && !isJsonResponse(response)) {
+      authenticated = false
+      await authenticate()
+      response = await doFetch(url)
+    }
     if (!response.ok) {
       throw new Error(`Expedit: GET ${path} retornou HTTP ${response.status}`)
+    }
+    if (!isJsonResponse(response)) {
+      throw new Error(`Expedit: GET ${path} devolveu não-JSON (sessão expirada?)`)
     }
     return (await response.json()) as T
   }
@@ -330,6 +351,46 @@ export const createExpeditClient = (config: ExpeditConfig): ExpeditClient => {
         page += 1
       } while (page <= totalPages && page < 1000)
       return all
+    },
+
+    async concluirPublicacao(ref) {
+      const id = String(ref ?? '').trim()
+      if (!id) return false
+      await authenticate()
+      const res = await doFetch(`${baseUrl}/_ajax/publicacao/concluir?id=${encodeURIComponent(id)}`)
+      if (!res.ok) return false
+      // O _ajax responde JSON com content-type text/html — parse pelo corpo.
+      try {
+        const data = JSON.parse(await res.text()) as { status?: string }
+        return data.status === 'success'
+      } catch {
+        return false
+      }
+    },
+
+    async setPublicacaoStatus(ref, status, motivo) {
+      const id = String(ref ?? '').trim()
+      if (!id) return false
+      await authenticate()
+      // 1) GET do modal de descarte → extrai o token CSRF do form.
+      const modal = await doFetch(`${baseUrl}/publicacoes/${encodeURIComponent(id)}/descartar`)
+      if (!modal.ok) return false
+      const csrf = extractCsrf(await modal.text())
+      if (!csrf) return false
+      // 2) PUT com o mesmo form que o front deles envia (csrf + status + motivo).
+      const res = await doFetch(`${baseUrl}/publicacoes/${encodeURIComponent(id)}/descartar`, {
+        method: 'PUT',
+        body: new URLSearchParams({ csrf, status, motivo }),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      })
+      if (!res.ok) return false
+      // Content-type não é confiável nesses endpoints — tenta JSON pelo corpo.
+      try {
+        const data = JSON.parse(await res.text()) as { status?: string; success?: boolean }
+        return data.status === 'success' || data.success === true || !('status' in data)
+      } catch {
+        return true // aceitou o PUT (2xx) com corpo não-JSON
+      }
     },
 
     async downloadDocumento(url) {

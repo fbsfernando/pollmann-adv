@@ -74,22 +74,36 @@ export const run = async (): Promise<number> => {
     })
     console.info('[expedit:sync] compromissos', { phase: compromissosResult.phase })
 
+    // Etapas do app-v2 isoladas: a sessão PHP pode expirar/falhar no meio de um
+    // run longo — uma etapa quebrada não pode derrubar as demais.
+    const step = async <T>(nome: string, fn: () => Promise<T>): Promise<T | null> => {
+      try {
+        const result = await fn()
+        console.info(`[expedit:sync] ${nome}`, { phase: (result as { phase?: unknown }).phase })
+        return result
+      } catch (e) {
+        console.error(`[expedit:sync] ${nome} falhou`, {
+          error: e instanceof Error ? e.message : 'unknown-error',
+        })
+        return null
+      }
+    }
+
     // 2) Sincroniza publicações do intervalo (app-v2) + arquiva documentos.
     const range = buildRange()
-    const publicacoesResult = await syncPublicacoesExpedit(prisma, appV2Client, range, {
-      archiveBaseDir,
-      driveArchiver,
-    })
+    const publicacoesResult = await step('publicacoes', () =>
+      syncPublicacoesExpedit(prisma, appV2Client, range, { archiveBaseDir, driveArchiver })
+    )
 
     // 2b) Sincroniza intimações eletrônicas (app-v2) — traz data de ciência e limite.
-    const intimacoesResult = await syncIntimacoesExpedit(prisma, appV2Client)
-    console.info('[expedit:sync] intimacoes', { phase: intimacoesResult.phase })
+    const intimacoesResult = await step('intimacoes', () =>
+      syncIntimacoesExpedit(prisma, appV2Client)
+    )
 
     // 3) Sincroniza documentos juntados no intervalo (app-v2) + arquiva (local + Drive).
-    const documentosResult = await syncDocumentosExpedit(prisma, appV2Client, range, {
-      archiveBaseDir,
-      driveArchiver,
-    })
+    const documentosResult = await step('documentos', () =>
+      syncDocumentosExpedit(prisma, appV2Client, range, { archiveBaseDir, driveArchiver })
+    )
 
     // 4) Lembretes de prazo (não derruba o sync em caso de falha).
     try {
@@ -112,12 +126,12 @@ export const run = async (): Promise<number> => {
     }
 
     console.info('[expedit:sync] completed', {
-      runId: publicacoesResult.runId,
+      runId: publicacoesResult?.runId ?? null,
       range: { from: range.from.toISOString(), to: range.to.toISOString() },
       processos: processosResult.phase,
-      publicacoes: publicacoesResult.phase,
-      intimacoes: intimacoesResult.phase,
-      documentos: documentosResult.phase,
+      publicacoes: publicacoesResult?.phase ?? 'falhou',
+      intimacoes: intimacoesResult?.phase ?? 'falhou',
+      documentos: documentosResult?.phase ?? 'falhou',
       timestamp: new Date().toISOString(),
     })
 
