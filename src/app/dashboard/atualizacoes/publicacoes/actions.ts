@@ -9,6 +9,7 @@ import {
   espelharPublicacaoTratada,
   espelharPublicacaoDescartada,
 } from "@/lib/expedit/expedit-writeback"
+import { espelharTarefaCriada } from "@/lib/expedit/expedit-agenda-writeback"
 import { PublicacaoStatus, Role, TarefaStatus, Prisma } from "@prisma/client"
 import { periodoRange, toIsoDay, PERIODOS, type Periodo } from "../periodo"
 import { PUBLICACOES_PAGE_SIZE } from "./constants"
@@ -264,8 +265,10 @@ export async function tratarPublicacao(formData: FormData) {
       processoNumero: publicacao.numProcesso,
     })
 
-    // Espelha no Expedit (best-effort; não bloqueia a triagem local).
+    // Espelha no Expedit (best-effort; não bloqueia a triagem local):
+    // 1) marca a publicação como tratada; 2) cria o compromisso na agenda dele.
     await espelharPublicacaoTratada(publicacao.expeditRef)
+    if (prazoData) await espelharTarefaCriada(prisma, novaTarefa.id)
 
     revalidatePath("/dashboard/atualizacoes/publicacoes")
     revalidatePath("/dashboard/agenda")

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { requireAuth } from "@/lib/auth/guards"
 import { notificarTarefaDirecionada } from "@/lib/notificacoes"
+import { espelharTarefaConcluida } from "@/lib/expedit/expedit-agenda-writeback"
 import { Role, TarefaStatus, Prisma } from "@prisma/client"
 
 export async function getTarefas(filters?: {
@@ -149,7 +150,7 @@ export async function concluirTarefa(id: string) {
 
   const tarefa = await prisma.tarefa.findUnique({
     where: { id: tarefaId },
-    select: { id: true, responsavelId: true },
+    select: { id: true, responsavelId: true, expeditId: true },
   })
   if (!tarefa) return { error: "Tarefa não encontrada" }
 
@@ -163,6 +164,9 @@ export async function concluirTarefa(id: string) {
       where: { id: tarefaId },
       data: { status: TarefaStatus.CONCLUIDO, concluidoEm: new Date() },
     })
+    // Espelha a conclusão no Expedit se a tarefa for um compromisso de lá
+    // (best-effort; não bloqueia a conclusão local).
+    await espelharTarefaConcluida(tarefa.expeditId)
     revalidatePath("/dashboard/agenda")
     return { success: true }
   } catch {
