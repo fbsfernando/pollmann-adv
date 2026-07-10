@@ -23,8 +23,12 @@ const isAuthorized = (req: NextRequest): boolean => {
 export async function POST(req: NextRequest) {
   if (!isAuthorized(req)) return unauthorized()
 
+  // ?days=N amplia a janela de publicações/documentos (backfill), 1–30 dias.
+  const rawDays = new URL(req.url).searchParams.get('days')
+  const days = rawDays ? Math.min(30, Math.max(1, Number(rawDays) || 1)) : null
+
   const script = [
-    `echo "[$(date)] === EXPEDIT SYNC (manual) ===" >> ${LOG}`,
+    `echo "[$(date)] === EXPEDIT SYNC (manual${days ? `, ${days}d` : ''}) ===" >> ${LOG}`,
     `npx tsx src/scripts/expedit-sync.ts >> ${LOG} 2>&1`,
     `echo "[$(date)] === FIM (exit $?) ===" >> ${LOG}`,
   ].join('\n')
@@ -33,11 +37,11 @@ export async function POST(req: NextRequest) {
     detached: true,
     stdio: 'ignore',
     cwd: process.cwd(),
-    env: process.env,
+    env: days ? { ...process.env, EXPEDIT_SYNC_DAYS: String(days) } : process.env,
   })
   child.unref()
 
-  return NextResponse.json({ message: 'Sync iniciado em background', pid: child.pid, log: LOG })
+  return NextResponse.json({ message: 'Sync iniciado em background', days, pid: child.pid, log: LOG })
 }
 
 export async function GET(req: NextRequest) {

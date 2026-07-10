@@ -14,7 +14,7 @@
  */
 import { randomUUID } from 'node:crypto'
 
-import type { PrismaClient } from '@prisma/client'
+import { PublicacaoStatus, type PrismaClient } from '@prisma/client'
 
 import type { ExpeditClient, DataRange } from '@/lib/expedit/expedit-client'
 import type { ExpeditPublicacaoItem } from '@/lib/expedit/expedit-types'
@@ -138,7 +138,18 @@ export const syncPublicacoesExpedit = async (
 
       const processo = await resolveProcesso(numProcesso)
 
+      // Estado de triagem no Expedit: `status` explícito (TRATADA/DESCARTADA,
+      // via modal de descarte) ou `lido: 1` (botão concluir). Importado para
+      // manter os dois sistemas coerentes quando o Richard trata por lá.
+      const expeditStatus =
+        item.status === 'DESCARTADA'
+          ? PublicacaoStatus.DESCARTADA
+          : item.status === 'TRATADA' || Number(item.lido) === 1
+            ? PublicacaoStatus.TRATADA
+            : null
+
       const dataFields = {
+        expeditRef: item._id ? String(item._id) : null,
         processoId: processo?.id ?? null,
         numProcesso,
         siglaDiario: sigla || (item.sigla_diario ?? null),
@@ -158,16 +169,26 @@ export const syncPublicacoesExpedit = async (
 
       const existing = await prisma.publicacao.findUnique({
         where: { externalId },
-        select: { id: true },
+        select: { id: true, status: true },
       })
 
       await prisma.publicacao.upsert({
         where: { externalId },
-        create: { externalId, ...dataFields },
+        create: {
+          externalId,
+          ...dataFields,
+          ...(expeditStatus ? { status: expeditStatus } : {}),
+        },
         update: {
+          expeditRef: dataFields.expeditRef,
           processoId: dataFields.processoId,
           inteiroTeorUrl: dataFields.inteiroTeorUrl,
           tipoComunicacao: dataFields.tipoComunicacao,
+          // Só promove PENDENTE → estado do Expedit; nunca rebaixa triagem local
+          // (tratada aqui continua tratada mesmo se lá ainda constar pendente).
+          ...(expeditStatus && existing?.status === PublicacaoStatus.PENDENTE
+            ? { status: expeditStatus }
+            : {}),
         },
       })
 

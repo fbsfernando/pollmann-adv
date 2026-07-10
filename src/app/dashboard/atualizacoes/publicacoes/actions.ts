@@ -5,6 +5,10 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { requireGestao } from "@/lib/auth/guards"
 import { notificarTarefaDirecionada } from "@/lib/notificacoes"
+import {
+  espelharPublicacaoTratada,
+  espelharPublicacaoDescartada,
+} from "@/lib/expedit/expedit-writeback"
 import { PublicacaoStatus, Role, TarefaStatus, Prisma } from "@prisma/client"
 import { periodoRange, toIsoDay, PERIODOS, type Periodo } from "../periodo"
 import { PUBLICACOES_PAGE_SIZE } from "./constants"
@@ -208,7 +212,7 @@ export async function tratarPublicacao(formData: FormData) {
 
   const publicacao = await prisma.publicacao.findUnique({
     where: { id: publicacaoId },
-    select: { id: true, numProcesso: true, processoId: true, status: true },
+    select: { id: true, numProcesso: true, processoId: true, status: true, expeditRef: true },
   })
   if (!publicacao) return { error: "Publicação não encontrada" }
 
@@ -260,6 +264,9 @@ export async function tratarPublicacao(formData: FormData) {
       processoNumero: publicacao.numProcesso,
     })
 
+    // Espelha no Expedit (best-effort; não bloqueia a triagem local).
+    await espelharPublicacaoTratada(publicacao.expeditRef)
+
     revalidatePath("/dashboard/atualizacoes/publicacoes")
     revalidatePath("/dashboard/agenda")
     return { success: true }
@@ -277,10 +284,12 @@ export async function marcarTratada(id: string) {
   if (!publicacaoId) return { error: "Publicação inválida" }
 
   try {
-    await prisma.publicacao.update({
+    const publicacao = await prisma.publicacao.update({
       where: { id: publicacaoId },
       data: { status: PublicacaoStatus.TRATADA },
+      select: { expeditRef: true },
     })
+    await espelharPublicacaoTratada(publicacao.expeditRef)
     revalidatePath("/dashboard/atualizacoes/publicacoes")
     return { success: true }
   } catch {
@@ -294,10 +303,12 @@ export async function descartarPublicacao(id: string) {
   if (!publicacaoId) return { error: "Publicação inválida" }
 
   try {
-    await prisma.publicacao.update({
+    const publicacao = await prisma.publicacao.update({
       where: { id: publicacaoId },
       data: { status: PublicacaoStatus.DESCARTADA },
+      select: { expeditRef: true },
     })
+    await espelharPublicacaoDescartada(publicacao.expeditRef)
     revalidatePath("/dashboard/atualizacoes/publicacoes")
     return { success: true }
   } catch {
