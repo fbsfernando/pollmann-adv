@@ -119,6 +119,10 @@ model Processo {
   clienteId   String         @map("cliente_id")
   advogadoId  String?        @map("advogado_id")
   observacoes String?
+  // Rotação real das janelas de sync (EXPEDIT_DETALHES_MAX): cada ciclo visita
+  // primeiro os processos há mais tempo sem visita (nulls first).
+  detalhesSyncedAt DateTime? @map("detalhes_synced_at")
+  agendaSyncedAt   DateTime? @map("agenda_synced_at")
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
@@ -127,12 +131,15 @@ model Processo {
   andamentos  Andamento[]
   documentos  Documento[]
   publicacoes Publicacao[]
+  intimacoes  Intimacao[]
   tarefas     Tarefa[]
 
   @@index([clienteId])
   @@index([advogadoId])
   @@index([tribunal])
   @@index([status])
+  @@index([detalhesSyncedAt])
+  @@index([agendaSyncedAt])
   @@map("processos")
 }
 
@@ -235,6 +242,37 @@ enum PublicacaoStatus {
   DESCARTADA
 }
 
+// Intimação eletrônica capturada do Expedit (aba Atualizações > Intimações).
+// Fonte distinta das publicações de diário: vem dos sistemas dos tribunais
+// (Eproc etc.) e traz data limite de manifestação. processoId é opcional
+// pelo mesmo motivo da Publicacao.
+model Intimacao {
+  id             String           @id @default(cuid())
+  externalId     String           @unique @map("external_id") // expedit-int:{id}
+  processoId     String?          @map("processo_id")
+  numProcesso    String           @map("num_processo")
+  evento         String? // ex.: "Evento :203"
+  orgao          String?
+  partes         String?
+  destinatario   String?
+  sistema        String? // ex.: "TJSC 1° Grau - Eproc"
+  dataExpediente DateTime?        @map("data_expediente")
+  dataCiencia    DateTime?        @map("data_ciencia")
+  dataLimite     DateTime?        @map("data_limite")
+  linkExpediente String?          @map("link_expediente")
+  status         PublicacaoStatus @default(PENDENTE)
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  processo Processo? @relation(fields: [processoId], references: [id], onDelete: SetNull)
+  tarefas  Tarefa[]
+
+  @@index([numProcesso])
+  @@index([status])
+  @@index([dataCiencia(sort: Desc)])
+  @@index([dataLimite])
+  @@map("intimacoes")
+}
+
 // Tarefa/compromisso direcionada a um advogado responsável (agenda).
 // Normalmente criada ao "tratar" uma publicação.
 model Tarefa {
@@ -250,6 +288,7 @@ model Tarefa {
   status        TarefaStatus @default(PENDENTE)
   processoId    String?      @map("processo_id")
   publicacaoId  String?      @map("publicacao_id")
+  intimacaoId   String?      @map("intimacao_id")
   responsavelId String       @map("responsavel_id")
   criadoPorId   String       @map("criado_por_id")
   concluidoEm   DateTime?    @map("concluido_em")
@@ -260,6 +299,7 @@ model Tarefa {
 
   processo    Processo?   @relation(fields: [processoId], references: [id], onDelete: SetNull)
   publicacao  Publicacao? @relation(fields: [publicacaoId], references: [id], onDelete: SetNull)
+  intimacao   Intimacao?  @relation(fields: [intimacaoId], references: [id], onDelete: SetNull)
   responsavel User        @relation("TarefaResponsavel", fields: [responsavelId], references: [id], onDelete: Cascade)
   criadoPor   User        @relation("TarefaCriador", fields: [criadoPorId], references: [id], onDelete: Cascade)
 
@@ -267,6 +307,7 @@ model Tarefa {
   @@index([status])
   @@index([prazoData])
   @@index([publicacaoId])
+  @@index([intimacaoId])
   @@map("tarefas")
 }
 

@@ -151,6 +151,32 @@ export type ExpeditDocumentoItem = {
   [key: string]: unknown
 }
 
+// ─── Intimações (módulo Atualizações › Intimações) ────────────────────────────
+
+/** Item de `/atualizacao/intimacoes/lista` — intimações eletrônicas capturadas
+ *  dos sistemas dos tribunais (Eproc etc.), fonte distinta dos diários. */
+export type ExpeditIntimacaoItem = {
+  id?: string | number
+  numero_processo?: string
+  processo_id?: string | number
+  /** Ex.: "Evento :203". */
+  intimacao?: string
+  orgao?: string
+  partes?: string
+  destinatario?: string
+  /** Tribunal/sistema de origem (ex.: "TJSC 1° Grau - Eproc"). */
+  descricao?: string
+  /** "YYYY-MM-DD". */
+  data_expediente?: string
+  data_ciencia?: string
+  data_limite?: string
+  /** URL pública do expediente (doc.expedit.com.br). */
+  link_expediente?: string
+  lido?: boolean
+  responsavel?: string
+  [key: string]: unknown
+}
+
 // ─── Resultado do parser de `conteudo_publicacao` ─────────────────────────────
 
 export type PublicacaoConteudoParsed = {

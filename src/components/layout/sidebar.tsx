@@ -46,6 +46,8 @@ const navItems = [
   },
   {
     href: "/dashboard/atualizacoes/publicacoes",
+    // Mantém o item ativo em todas as abas do módulo (publicações/intimações).
+    activePrefix: "/dashboard/atualizacoes",
     label: "Atualizações",
     icon: Bell,
     exact: false,
@@ -149,7 +151,7 @@ export function Sidebar({ open, onClose, counts }: SidebarProps) {
           {filteredItems.map((item) => {
             const isActive = item.exact
               ? pathname === item.href
-              : pathname.startsWith(item.href)
+              : pathname.startsWith(("activePrefix" in item && item.activePrefix) || item.href)
             const count = counts?.[item.href] ?? 0
 
             return (

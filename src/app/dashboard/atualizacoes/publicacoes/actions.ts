@@ -6,14 +6,29 @@ import { z } from "zod"
 import { requireGestao } from "@/lib/auth/guards"
 import { notificarTarefaDirecionada } from "@/lib/notificacoes"
 import { PublicacaoStatus, Role, TarefaStatus, Prisma } from "@prisma/client"
+import { periodoRange, toIsoDay, PERIODOS, type Periodo } from "../periodo"
+import { PUBLICACOES_PAGE_SIZE } from "./constants"
 
-export async function getPublicacoes(filters?: {
+export type PublicacoesFilters = {
   status?: string
   diario?: string
   search?: string
-}) {
-  await requireGestao()
+  periodo?: Periodo
+  /** Dia da edição ("YYYY-MM-DD") — usado no drill-down por diário. */
+  dia?: string
+  page?: number
+}
 
+const parseDia = (dia?: string): { gte: Date; lt: Date } | null => {
+  if (!dia || !/^\d{4}-\d{2}-\d{2}$/.test(dia)) return null
+  const gte = new Date(`${dia}T00:00:00.000Z`)
+  if (Number.isNaN(gte.getTime())) return null
+  const lt = new Date(gte)
+  lt.setUTCDate(lt.getUTCDate() + 1)
+  return { gte, lt }
+}
+
+const buildWhere = (filters?: PublicacoesFilters): Prisma.PublicacaoWhereInput => {
   const where: Prisma.PublicacaoWhereInput = {}
 
   // Default: mostra apenas pendentes quando nenhum status é informado.
@@ -24,6 +39,11 @@ export async function getPublicacoes(filters?: {
   }
 
   if (filters?.diario) where.siglaDiario = filters.diario
+
+  const dia = parseDia(filters?.dia)
+  const range = dia ?? (filters?.periodo ? periodoRange(filters.periodo) : null)
+  if (range) where.dataPublicacao = range
+
   if (filters?.search) {
     const search = filters.search.slice(0, 100)
     where.OR = [
@@ -32,14 +52,110 @@ export async function getPublicacoes(filters?: {
     ]
   }
 
-  return prisma.publicacao.findMany({
-    where,
-    take: 300,
-    orderBy: { dataPublicacao: "desc" },
-    include: {
-      processo: { select: { id: true, numero: true, cliente: { select: { nome: true } } } },
+  return where
+}
+
+export async function getPublicacoes(filters?: PublicacoesFilters) {
+  await requireGestao()
+
+  const where = buildWhere(filters)
+  const page = Math.max(1, filters?.page ?? 1)
+
+  const [items, total] = await Promise.all([
+    prisma.publicacao.findMany({
+      where,
+      skip: (page - 1) * PUBLICACOES_PAGE_SIZE,
+      take: PUBLICACOES_PAGE_SIZE,
+      orderBy: { dataPublicacao: "desc" },
+      include: {
+        processo: { select: { id: true, numero: true, cliente: { select: { nome: true } } } },
+      },
+    }),
+    prisma.publicacao.count({ where }),
+  ])
+
+  return { items, total, page, pageSize: PUBLICACOES_PAGE_SIZE }
+}
+
+/** Contagem de PENDENTES por período (cards de período, padrão Expedit). */
+export async function getPeriodoCounts(): Promise<Record<Periodo, number>> {
+  await requireGestao()
+  const counts = await Promise.all(
+    PERIODOS.map((p) => {
+      const range = periodoRange(p.value)
+      return prisma.publicacao.count({
+        where: {
+          status: PublicacaoStatus.PENDENTE,
+          ...(range ? { dataPublicacao: range } : {}),
+        },
+      })
+    })
+  )
+  return Object.fromEntries(PERIODOS.map((p, i) => [p.value, counts[i]])) as Record<
+    Periodo,
+    number
+  >
+}
+
+export type Edicao = {
+  dia: string // "YYYY-MM-DD"
+  siglaDiario: string | null
+  nomeDiario: string | null
+  uf: string | null
+  total: number
+  pendentes: number
+  tratadas: number
+  descartadas: number
+}
+
+/**
+ * Edições de diário (dia de publicação + diário) com progresso de tratamento —
+ * a visão principal do Expedit ("TJRS 09/07 — Pendente 0/5").
+ */
+export async function getEdicoes(periodo?: Periodo): Promise<Edicao[]> {
+  await requireGestao()
+
+  const range = periodo ? periodoRange(periodo) : null
+  const rows = await prisma.publicacao.findMany({
+    where: range ? { dataPublicacao: range } : {},
+    select: {
+      siglaDiario: true,
+      nomeDiario: true,
+      uf: true,
+      dataPublicacao: true,
+      status: true,
     },
+    orderBy: { dataPublicacao: "desc" },
+    take: 5000,
   })
+
+  const map = new Map<string, Edicao>()
+  for (const r of rows) {
+    const dia = toIsoDay(r.dataPublicacao)
+    const key = `${dia}|${r.siglaDiario ?? ""}`
+    let e = map.get(key)
+    if (!e) {
+      e = {
+        dia,
+        siglaDiario: r.siglaDiario,
+        nomeDiario: r.nomeDiario,
+        uf: r.uf,
+        total: 0,
+        pendentes: 0,
+        tratadas: 0,
+        descartadas: 0,
+      }
+      map.set(key, e)
+    }
+    e.total += 1
+    if (r.status === PublicacaoStatus.PENDENTE) e.pendentes += 1
+    else if (r.status === PublicacaoStatus.TRATADA) e.tratadas += 1
+    else e.descartadas += 1
+  }
+
+  return Array.from(map.values()).sort(
+    (a, b) => b.dia.localeCompare(a.dia) || (a.siglaDiario ?? "").localeCompare(b.siglaDiario ?? "")
+  )
 }
 
 /** Diários distintos presentes nas publicações, para popular o filtro. */
@@ -151,6 +267,24 @@ export async function tratarPublicacao(formData: FormData) {
     const msg = e instanceof Error ? e.message : "unknown-error"
     console.error("[tratarPublicacao] failed", { publicacaoId, error: msg })
     return { error: "Erro ao tratar publicação" }
+  }
+}
+
+/** Triagem rápida: marca como tratada SEM criar tarefa (padrão Expedit). */
+export async function marcarTratada(id: string) {
+  await requireGestao()
+  const publicacaoId = id.trim()
+  if (!publicacaoId) return { error: "Publicação inválida" }
+
+  try {
+    await prisma.publicacao.update({
+      where: { id: publicacaoId },
+      data: { status: PublicacaoStatus.TRATADA },
+    })
+    revalidatePath("/dashboard/atualizacoes/publicacoes")
+    return { success: true }
+  } catch {
+    return { error: "Erro ao marcar como tratada" }
   }
 }
 

@@ -187,14 +187,23 @@ export const syncCompromissosExpedit = async (
     }
   }
 
+  // Rotação real (mesma lógica do sync de detalhes): visita primeiro os
+  // processos há mais tempo sem leitura de agenda — `updatedAt desc` não
+  // rotacionava porque o sync de processos reescreve updatedAt de todos.
   const processos = await prisma.processo.findMany({
     where: { expeditId: { not: null } },
     select: { id: true, expeditId: true, numero: true },
-    orderBy: { updatedAt: 'desc' },
+    orderBy: { agendaSyncedAt: { sort: 'asc', nulls: 'first' } },
     take: deps?.maxProcessos,
   })
 
   for (const proc of processos) {
+    // Marca a visita antes de qualquer skip — é o que faz a janela rotacionar
+    // (um id inválido ou agenda vazia não pode ocupar a janela para sempre).
+    await prisma.processo
+      .update({ where: { id: proc.id }, data: { agendaSyncedAt: new Date() } })
+      .catch(() => {})
+
     const expeditId = Number(proc.expeditId)
     if (!Number.isFinite(expeditId)) continue
 

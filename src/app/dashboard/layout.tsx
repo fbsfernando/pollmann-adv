@@ -15,9 +15,12 @@ async function getSidebarCounts(): Promise<Record<string, number>> {
   const inicioHoje = new Date()
   inicioHoje.setHours(0, 0, 0, 0)
 
-  const [publicacoesPendentes, tarefasAtrasadas] = await Promise.all([
+  const [publicacoesPendentes, intimacoesPendentes, tarefasAtrasadas] = await Promise.all([
     isAdmin
       ? prisma.publicacao.count({ where: { status: PublicacaoStatus.PENDENTE } })
+      : Promise.resolve(0),
+    isAdmin
+      ? prisma.intimacao.count({ where: { status: PublicacaoStatus.PENDENTE } })
       : Promise.resolve(0),
     prisma.tarefa.count({
       where: {
@@ -29,7 +32,8 @@ async function getSidebarCounts(): Promise<Record<string, number>> {
   ])
 
   return {
-    "/dashboard/atualizacoes/publicacoes": publicacoesPendentes,
+    // Badge única do módulo Atualizações: publicações + intimações pendentes.
+    "/dashboard/atualizacoes/publicacoes": publicacoesPendentes + intimacoesPendentes,
     "/dashboard/agenda": tarefasAtrasadas,
   }
 }
