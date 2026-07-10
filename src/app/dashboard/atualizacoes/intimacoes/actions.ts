@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { requireGestao } from "@/lib/auth/guards"
 import { notificarTarefaDirecionada } from "@/lib/notificacoes"
+import { espelharTarefaCriada } from "@/lib/expedit/expedit-agenda-writeback"
 import { PublicacaoStatus, Role, TarefaStatus, Prisma } from "@prisma/client"
 import { periodoRange, PERIODOS, type Periodo } from "../periodo"
 import { INTIMACOES_PAGE_SIZE } from "./constants"
@@ -167,6 +168,9 @@ export async function tratarIntimacao(formData: FormData) {
       titulo: novaTarefa.titulo,
       processoNumero: intimacao.numProcesso,
     })
+
+    // Espelha o prazo como compromisso na agenda do Expedit (best-effort).
+    if (prazo) await espelharTarefaCriada(prisma, novaTarefa.id)
 
     revalidatePath("/dashboard/atualizacoes/intimacoes")
     revalidatePath("/dashboard/agenda")

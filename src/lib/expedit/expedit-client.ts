@@ -53,6 +53,31 @@ export type ExpeditDocumentoDownload = {
   filename: string
 }
 
+/** Dados para criar um compromisso na agenda do Expedit (write-back Fase B). */
+export type ExpeditCompromissoInput = {
+  titulo: string
+  /** Data do prazo/compromisso (a hora é fixada em 09:00–09:30 se não houver). */
+  data: Date
+  observacao?: string | null
+  /** expeditId (numérico) do processo, para vincular na agenda do Expedit. */
+  processoExpeditId?: string | null
+  /** Tipo do evento: mapeado para o tipoevento do Expedit. */
+  tipo?: string
+}
+
+/** Tipos de evento do form /agenda/novo (ids reais extraídos do select). */
+const TIPO_EVENTO: Record<string, string> = {
+  compromisso: '3061',
+  atendimento: '12235',
+  audiencia: '12233',
+  audiência: '12233',
+  diligencia: '12236',
+  diligência: '12236',
+  lembrete: '12237',
+  outros: '12238',
+  prazo: '12234',
+}
+
 // ─── Cookie jar (mesmo padrão de eproc-http.ts) ───────────────────────────────
 
 class CookieJar {
@@ -130,6 +155,12 @@ export interface ExpeditClient {
     status: 'DESCARTADA' | 'TRATADA' | 'NAO_TRATADA',
     motivo: string
   ): Promise<boolean>
+  /** Cria um compromisso na agenda do Expedit; retorna o id criado (ou null). */
+  criarCompromisso(input: ExpeditCompromissoInput): Promise<number | null>
+  /** Marca um compromisso da agenda do Expedit como concluído (id numérico). */
+  concluirCompromisso(id: number | string): Promise<boolean>
+  /** Remove um compromisso da agenda do Expedit (id numérico). */
+  deletarCompromisso(id: number | string): Promise<boolean>
   /** Baixa um documento do Expedit a partir de uma URL absoluta/relativa. */
   downloadDocumento(url: string): Promise<ExpeditDocumentoDownload | null>
 }
@@ -139,6 +170,10 @@ export const createExpeditClient = (config: ExpeditConfig): ExpeditClient => {
   const baseUrl = config.baseUrl.replace(/\/+$/, '')
   const cookies = new CookieJar()
   let authenticated = false
+  // user_id do responsável padrão no Expedit (dono da conta), descoberto sob
+  // demanda ao criar o primeiro compromisso. undefined = ainda não buscado.
+  let responsavelExpeditId: string | null | undefined =
+    process.env.EXPEDIT_RESPONSAVEL_ID || undefined
 
   if (config.proxyUrl) {
     cookies.dispatcher = new ProxyAgent(config.proxyUrl)
@@ -415,6 +450,85 @@ export const createExpeditClient = (config: ExpeditConfig): ExpeditClient => {
         return data.status === 'success' || data.success === true || !('status' in data)
       } catch {
         return true // aceitou o PUT (2xx) com corpo não-JSON
+      }
+    },
+
+    async criarCompromisso(input) {
+      await authenticate()
+      // 0) Responsável é obrigatório no Expedit. Descobre o dono da conta uma
+      //    vez (o form carrega os usuários via este endpoint) e cacheia.
+      if (responsavelExpeditId === undefined) {
+        try {
+          const users = await getJson<{ id?: number }[]>('/configuracao/usuario/recursos/listar')
+          responsavelExpeditId = users?.[0]?.id != null ? String(users[0].id) : null
+        } catch {
+          responsavelExpeditId = null
+        }
+      }
+      if (!responsavelExpeditId) return null
+
+      // 1) csrf do form de novo compromisso.
+      const page = await doFetch(`${baseUrl}/agenda/novo`, { headers: { Accept: 'text/html' } })
+      const csrf = extractCsrf(await page.text())
+      if (!csrf) return null
+
+      const dia = toIsoDate(input.data)
+      const tipoId = TIPO_EVENTO[String(input.tipo ?? '').toLowerCase()] ?? TIPO_EVENTO.prazo
+
+      // 2) POST multipart, imitando o submit do form do navegador.
+      const fd = new FormData()
+      fd.set('csrf', csrf)
+      fd.set('calendar_event_description', input.titulo.slice(0, 250))
+      fd.set('calendar_event_start_date', dia)
+      fd.set('calendar_event_start_time', '09:00')
+      fd.set('calendar_event_end_date', dia)
+      fd.set('calendar_event_end_time', '09:30')
+      fd.set('data_fatal', dia)
+      fd.set('tipoevento', tipoId)
+      fd.set('situacao', 'pendente')
+      fd.set('prioridade', '0')
+      fd.set('responsavel_id[]', responsavelExpeditId)
+      if (input.observacao) fd.set('obsag', input.observacao.slice(0, 2000))
+      if (input.processoExpeditId) fd.set('processo_id', String(input.processoExpeditId))
+
+      const res = await doFetch(`${baseUrl}/agenda/novo`, { method: 'POST', body: fd })
+      if (!res.ok) return null
+      try {
+        const data = JSON.parse(await res.text()) as { agenda?: { id?: number }[] }
+        return data.agenda?.[0]?.id ?? null
+      } catch {
+        return null
+      }
+    },
+
+    async concluirCompromisso(id) {
+      const n = String(id ?? '').trim()
+      if (!n) return false
+      await authenticate()
+      const res = await doFetch(`${baseUrl}/agenda/tarefa/${encodeURIComponent(n)}/concluir`)
+      if (!res.ok) return false
+      // Resposta é o objeto agenda em JSON (content-type text/html) — sucesso se parseia.
+      try {
+        const data = JSON.parse(await res.text()) as { agenda?: unknown[]; status?: string }
+        return data.status === 'success' || Array.isArray(data.agenda)
+      } catch {
+        return false
+      }
+    },
+
+    async deletarCompromisso(id) {
+      const n = String(id ?? '').trim()
+      if (!n) return false
+      await authenticate()
+      const res = await doFetch(`${baseUrl}/agenda/tarefa/${encodeURIComponent(n)}/delete`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) return false
+      try {
+        const data = JSON.parse(await res.text()) as { status?: string; delete?: boolean }
+        return data.status === 'success' || data.delete === true
+      } catch {
+        return false
       }
     },
 
