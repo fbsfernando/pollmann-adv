@@ -15,9 +15,10 @@
  */
 import { randomUUID } from 'node:crypto'
 
-import { Role, TarefaStatus, type PrismaClient } from '@prisma/client'
+import { TarefaStatus, type PrismaClient } from '@prisma/client'
 
 import { notificarTarefaDirecionada } from '@/lib/notificacoes'
+import { createResponsavelResolver } from '@/lib/pipeline/responsavel-matching'
 import type { ExpeditApiClient } from '@/lib/expedit/expedit-api-client'
 import type {
   CompromissoDTO,
@@ -96,10 +97,8 @@ export const syncCompromissosExpedit = async (
   let tarefasAtualizadas = 0
   let semResponsavelMapeado = 0
 
-  const users = await prisma.user.findMany({ select: { id: true, name: true, role: true, ativo: true } })
-  const userByNome = new Map<string, string>()
-  for (const u of users) if (u.name) userByNome.set(norm(u.name), u.id)
-  const admin = users.find((u) => u.role === Role.ADMIN) ?? users[0]
+  const resolver = await createResponsavelResolver(prisma)
+  const admin = resolver.admin
   if (!admin) {
     return {
       runId,
@@ -114,48 +113,36 @@ export const syncCompromissosExpedit = async (
       },
     }
   }
+  const advogadoIds = resolver.advogadoIds
 
-  const advogados = users
-    .filter((u) => u.role === Role.ADVOGADO && u.ativo && u.name)
-    .map((u) => ({ id: u.id, name: u.name as string }))
-  const advogadoIds = new Set(advogados.map((a) => a.id))
-
-  const matchPorTexto = (texto: string): string | null => {
-    const t = norm(texto)
-    if (!t) return null
-    for (const a of advogados) if (t.includes(norm(a.name))) return a.id
-    for (const a of advogados) {
-      const first = norm(a.name).split(/\s+/)[0]
-      if (first.length >= 3 && new RegExp(`(^|[^a-z])${first}([^a-z]|$)`).test(t)) return a.id
-    }
-    return null
-  }
-
-  /** Resolve responsável: nome no texto → responsaveis[] → admin. */
+  /** Resolve responsável: nome no texto → responsaveis[] → admin (fila de pré-triagem). */
   const resolveResp = (
     texto: string,
     responsaveis?: ResponsavelDTO[]
-  ): { id: string; byTexto: string | null } => {
-    const byTexto = matchPorTexto(texto)
-    if (byTexto) return { id: byTexto, byTexto }
-    for (const r of responsaveis ?? []) {
-      const id = userByNome.get(norm(r.nome))
-      if (id) return { id, byTexto: null }
-    }
-    semResponsavelMapeado += 1
-    return { id: admin.id, byTexto: null }
+  ): { id: string; byTexto: string | null; fallback: boolean } => {
+    const r = resolver.resolve(texto, responsaveis)
+    if (r.fallback) semResponsavelMapeado += 1
+    return r
   }
 
   const upsertEvento = async (
     externalId: string,
     f: EventoFields,
-    byTexto: string | null,
+    resolved: { byTexto: string | null; fallback: boolean },
     processoNumero?: string
   ) => {
-    const existing = await prisma.tarefa.findUnique({ where: { expeditId: externalId }, select: { id: true } })
+    const existing = await prisma.tarefa.findUnique({
+      where: { expeditId: externalId },
+      select: { id: true, responsavelId: true },
+    })
     const tarefa = await prisma.tarefa.upsert({
       where: { expeditId: externalId },
-      create: { expeditId: externalId, criadoPorId: admin.id, ...f },
+      create: {
+        expeditId: externalId,
+        criadoPorId: admin.id,
+        semResponsavel: resolved.fallback,
+        ...f,
+      },
       update: {
         tipo: f.tipo,
         titulo: f.titulo,
@@ -166,8 +153,13 @@ export const syncCompromissosExpedit = async (
         processoId: f.processoId,
         concluidoEm: f.concluidoEm,
         // Re-direciona só quando o título indica um advogado; senão preserva
-        // uma reatribuição manual feita na nossa plataforma.
-        ...(byTexto ? { responsavelId: byTexto } : {}),
+        // uma reatribuição manual feita na nossa plataforma. Tarefas que
+        // continuam no admin sem match entram na fila de pré-triagem.
+        ...(resolved.byTexto
+          ? { responsavelId: resolved.byTexto, semResponsavel: false }
+          : resolved.fallback && existing?.responsavelId === admin.id
+            ? { semResponsavel: true }
+            : {}),
       },
       select: { id: true },
     })
@@ -215,7 +207,7 @@ export const syncCompromissosExpedit = async (
       compromissosColetados += 1
       const cc = c as CompromissoDTO
       const texto = `${cc.titulo ?? ''} ${cc.descricao ?? ''}`
-      const { id: responsavelId, byTexto } = resolveResp(texto, cc.responsaveis)
+      const resolved = resolveResp(texto, cc.responsaveis)
       const prazoData = parseDate(cc.dataFim) ?? parseDate(cc.dataInicio)
       await upsertEvento(
         `expedit-comp:${cc.id}`,
@@ -227,10 +219,10 @@ export const syncCompromissosExpedit = async (
           prazoData,
           status: mapStatusStr(cc.situacao, cc.concluido),
           processoId: proc.id,
-          responsavelId,
+          responsavelId: resolved.id,
           concluidoEm: cc.concluido ? prazoData : null,
         },
-        byTexto,
+        resolved,
         proc.numero
       )
     }
@@ -241,7 +233,7 @@ export const syncCompromissosExpedit = async (
       const aud = a as AudienciaDTO
       const titulo = `${aud.tipoAudiencia ?? 'Audiência'}${aud.sala ? ` — Sala ${aud.sala}` : ''}`
       const texto = `${titulo} ${(aud.responsaveis ?? []).map((r) => r.nome).join(' ')}`
-      const { id: responsavelId, byTexto } = resolveResp(texto, aud.responsaveis)
+      const resolved = resolveResp(texto, aud.responsaveis)
       const data = parseDate(aud.dataInicio) ?? parseDate(aud.dataFim)
       const status = mapStatusStr(aud.status)
       await upsertEvento(
@@ -254,10 +246,10 @@ export const syncCompromissosExpedit = async (
           prazoData: data,
           status,
           processoId: proc.id,
-          responsavelId,
+          responsavelId: resolved.id,
           concluidoEm: status === TarefaStatus.CONCLUIDO ? data : null,
         },
-        byTexto,
+        resolved,
         proc.numero
       )
     }
@@ -270,7 +262,7 @@ export const syncCompromissosExpedit = async (
         ? String(exp.titulo)
         : `Prazo${exp.tipoLimite ? ` — ${exp.tipoLimite}` : ''}`
       const texto = `${titulo} ${exp.destinatario ?? ''} ${(exp.responsaveis ?? []).map((r) => r.nome).join(' ')}`
-      const { id: responsavelId, byTexto } = resolveResp(texto, exp.responsaveis)
+      const resolved = resolveResp(texto, exp.responsaveis)
       const prazoData = parseDate(exp.dataFim) ?? parseDate(exp.dataInicio)
       await upsertEvento(
         `expedit-exp:${exp.id}`,
@@ -286,10 +278,10 @@ export const syncCompromissosExpedit = async (
           prazoData,
           status: TarefaStatus.PENDENTE,
           processoId: proc.id,
-          responsavelId,
+          responsavelId: resolved.id,
           concluidoEm: null,
         },
-        byTexto,
+        resolved,
         proc.numero
       )
     }
