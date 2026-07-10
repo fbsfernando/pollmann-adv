@@ -14,6 +14,8 @@ export async function getTarefas(filters?: {
   from?: Date
   to?: Date
   incluirConcluidas?: boolean
+  /** Fila de pré-triagem: só tarefas importadas sem advogado identificado. */
+  aDirecionar?: boolean
 }) {
   const session = await requireAuth()
 
@@ -25,6 +27,8 @@ export async function getTarefas(filters?: {
   } else if (filters?.responsavelId) {
     where.responsavelId = filters.responsavelId
   }
+
+  if (filters?.aDirecionar) where.semResponsavel = true
 
   // Status específico tem prioridade; senão, abre só não-concluídas (a menos
   // que incluirConcluidas).
@@ -72,6 +76,18 @@ export async function getAdvogadosFiltro() {
   })
 }
 
+/** Quantas tarefas abertas aguardam direcionamento (fila de pré-triagem, só admin). */
+export async function getADirecionarCount(): Promise<number> {
+  const session = await requireAuth()
+  if (session.user.role !== Role.ADMIN) return 0
+  return prisma.tarefa.count({
+    where: {
+      semResponsavel: true,
+      status: { in: [TarefaStatus.PENDENTE, TarefaStatus.EM_ANDAMENTO] },
+    },
+  })
+}
+
 /** Tipos de tarefa distintos (para o filtro), com escopo por papel. */
 export async function getTiposTarefa(): Promise<string[]> {
   const session = await requireAuth()
@@ -106,7 +122,8 @@ export async function direcionarTarefa(tarefaId: string, responsavelId: string) 
   try {
     const tarefa = await prisma.tarefa.update({
       where: { id },
-      data: { responsavelId: respId },
+      // Direcionada manualmente → sai da fila de pré-triagem.
+      data: { responsavelId: respId, semResponsavel: false },
       select: { id: true, titulo: true, processo: { select: { numero: true } } },
     })
     // Notifica o advogado que recebeu a tarefa (não a si mesmo).

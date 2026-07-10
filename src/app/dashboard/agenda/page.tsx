@@ -1,4 +1,4 @@
-import { getTarefas, getAdvogadosFiltro, getTiposTarefa } from "./actions"
+import { getTarefas, getAdvogadosFiltro, getTiposTarefa, getADirecionarCount } from "./actions"
 import { ConcluirButton } from "./components/concluir-button"
 import { DirecionarSelect } from "./components/direcionar-select"
 import { AgendaToolbar } from "./components/agenda-toolbar"
@@ -170,10 +170,13 @@ export default async function AgendaPage({
     status?: string
     tipo?: string
     processo?: string
+    aDirecionar?: string
   }>
 }) {
   const sp = await searchParams
-  const view: ViewMode = isViewMode(sp.view) ? sp.view : "mes"
+  const aDirecionar = sp.aDirecionar === "1"
+  // A fila de pré-triagem faz mais sentido como lista (sem grade de datas).
+  const view: ViewMode = aDirecionar ? "lista" : isViewMode(sp.view) ? sp.view : "mes"
   const anchor = parseAnchor(sp.date)
 
   const grid =
@@ -182,21 +185,23 @@ export default async function AgendaPage({
   const todas = sp.status === "TODAS"
   const statusEnum = !todas && sp.status ? sp.status : undefined
 
-  const [tarefas, advogados, tipos] = await Promise.all([
+  const [tarefas, advogados, tipos, aDirecionarCount] = await Promise.all([
     getTarefas({
       responsavelId: sp.responsavel || undefined,
       status: statusEnum,
       tipo: sp.tipo || undefined,
       processoNumero: sp.processo || undefined,
       incluirConcluidas: todas,
+      aDirecionar,
       ...(grid ? { from: grid.from, to: endExclusive(grid.to) } : {}),
     }),
     getAdvogadosFiltro(),
     getTiposTarefa(),
+    getADirecionarCount(),
   ])
 
   const isAdmin = advogados.length > 0
-  const hasFilters = !!(sp.responsavel || sp.status || sp.tipo || sp.processo)
+  const hasFilters = !!(sp.responsavel || sp.status || sp.tipo || sp.processo || aDirecionar)
 
   return (
     <div className="space-y-5">
@@ -208,6 +213,34 @@ export default async function AgendaPage({
             : `${tarefas.length} no período`}
         </p>
       </div>
+
+      {/* Fila de pré-triagem: tarefas importadas do Expedit sem advogado identificado */}
+      {isAdmin && aDirecionarCount > 0 && !aDirecionar && (
+        <Link
+          href="/dashboard/agenda?aDirecionar=1"
+          className="flex items-center gap-3 px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-500/8 hover:bg-amber-500/15 transition-colors"
+        >
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          <span className="text-sm text-foreground/90">
+            <strong className="font-semibold tabular-nums">{aDirecionarCount}</strong> tarefa
+            {aDirecionarCount !== 1 ? "s" : ""} importada{aDirecionarCount !== 1 ? "s" : ""} do
+            Expedit aguardando direcionamento a um advogado
+          </span>
+          <span className="ml-auto text-xs font-medium text-amber-700 whitespace-nowrap">
+            Direcionar →
+          </span>
+        </Link>
+      )}
+      {aDirecionar && (
+        <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-500/8">
+          <span className="text-sm text-foreground/90">
+            Fila de direcionamento — escolha o advogado em cada tarefa
+          </span>
+          <Link href="/dashboard/agenda" className="text-xs text-muted-foreground hover:text-foreground">
+            Sair da fila
+          </Link>
+        </div>
+      )}
 
       {/* Filtros */}
       <form className="flex flex-wrap gap-2 items-center p-3 rounded-xl border border-border bg-card shadow-[var(--shadow-card)]">

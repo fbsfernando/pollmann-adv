@@ -32,7 +32,11 @@ export type IntimacoesSyncResult = {
 
 export const syncIntimacoesExpedit = async (
   prisma: PrismaClient,
-  client: ExpeditClient
+  client: ExpeditClient,
+  opts?: {
+    /** Limita a paginação (sync rápido usa 1 página — as novas chegam no topo). */
+    maxPaginas?: number
+  }
 ): Promise<IntimacoesSyncResult> => {
   const runId = randomUUID()
 
@@ -41,7 +45,7 @@ export const syncIntimacoesExpedit = async (
   let ignoradas = 0
   let vinculadasAProcesso = 0
 
-  const itens = await client.listAllIntimacoes()
+  const itens = await client.listAllIntimacoes(100, opts?.maxPaginas)
 
   // Cache (expeditId | numero) → processoId | null
   const processoCache = new Map<string, string | null>()

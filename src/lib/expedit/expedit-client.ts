@@ -15,6 +15,8 @@
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from 'undici'
 
 import type {
+  ExpeditAgendaGlobalItem,
+  ExpeditAgendaGlobalResponse,
   ExpeditDocumentoItem,
   ExpeditIntimacaoItem,
   ExpeditPaginatedResponse,
@@ -116,8 +118,10 @@ export interface ExpeditClient {
   listAllDocumentos(range: DataRange, limit?: number): Promise<ExpeditDocumentoItem[]>
   /** Lista uma página de intimações eletrônicas (módulo Atualizações › Intimações). */
   listIntimacoes(page?: number, limit?: number): Promise<ExpeditPaginatedResponse<ExpeditIntimacaoItem>>
-  /** Lista TODAS as intimações, paginando por `totalPages`. */
-  listAllIntimacoes(limit?: number): Promise<ExpeditIntimacaoItem[]>
+  /** Lista TODAS as intimações, paginando por `totalPages` (ou até `maxPaginas`). */
+  listAllIntimacoes(limit?: number, maxPaginas?: number): Promise<ExpeditIntimacaoItem[]>
+  /** Agenda global do escritório (compromissos+audiências+expedientes) em 1 request. */
+  listAgendaGlobal(start: Date, end: Date): Promise<ExpeditAgendaGlobalItem[]>
   /** Marca uma publicação como tratada no Expedit (idempotente; ref = `_id` do item). */
   concluirPublicacao(ref: string): Promise<boolean>
   /** Altera o status de triagem de uma publicação no Expedit, com motivo auditável. */
@@ -340,7 +344,7 @@ export const createExpeditClient = (config: ExpeditConfig): ExpeditClient => {
       )
     },
 
-    async listAllIntimacoes(limit = 100) {
+    async listAllIntimacoes(limit = 100, maxPaginas = 1000) {
       const all: ExpeditIntimacaoItem[] = []
       let page = 1
       let totalPages = 1
@@ -349,8 +353,29 @@ export const createExpeditClient = (config: ExpeditConfig): ExpeditClient => {
         all.push(...(res.data ?? []))
         totalPages = res.totalPages ?? 1
         page += 1
-      } while (page <= totalPages && page < 1000)
+      } while (page <= totalPages && page <= maxPaginas)
       return all
+    },
+
+    async listAgendaGlobal(start, end) {
+      // Réplica dos parâmetros do calendário do app-v2 (todos os tipos ligados).
+      const qs = new URLSearchParams({
+        start: `${toIsoDate(start)}T00:00:00-03:00`,
+        end: `${toIsoDate(end)}T00:00:00-03:00`,
+        prioridade: '0',
+        situacao: '0',
+        selecionatipodata: '0',
+        selecionatipodetarefa: '0',
+        agenda_tarefas_atrasadas: '1',
+        agenda_tarefas_concluida: '1',
+        agenda_tarefas_pendentes: '1',
+        agenda_compromissos: '1',
+        agenda_expedientes: '1',
+        agenda_audiencias: '1',
+        agenda_diligencia: '1',
+      })
+      const res = await getJson<ExpeditAgendaGlobalResponse>(`/agenda/agenda?${qs.toString()}`)
+      return res.dados ?? []
     },
 
     async concluirPublicacao(ref) {

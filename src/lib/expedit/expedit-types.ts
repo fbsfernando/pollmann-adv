@@ -181,6 +181,38 @@ export type ExpeditIntimacaoItem = {
   [key: string]: unknown
 }
 
+// ─── Agenda global (calendário do app-v2) ─────────────────────────────────────
+
+/** Item de `/agenda/agenda` — a agenda INTEIRA do escritório em 1 request
+ *  (vs. 1 request por processo na API oficial). Ids compatíveis com os da API
+ *  oficial (mesmo id de compromisso/audiência — verificado E2E). */
+export type ExpeditAgendaGlobalItem = {
+  tipo?: 'COMPROMISSO' | 'AUDIENCIA' | 'EXPEDIENTE' | string
+  id?: string | number
+  data_inicio?: string
+  data_fim?: string
+  data_fatal?: string | null
+  titulo?: string
+  observacao?: string
+  concluido?: number | boolean
+  publicacao_id?: string | null
+  responsaveis?: { nome?: string; user_id?: number }[] | null
+  tipo_compromisso?: { nome?: string } | string | null
+  compromisso?: { situacao?: string; descricao?: string } | null
+  audiencia?:
+    | { id?: number; sala?: string; status?: string; data_prevista?: string; tipo_audiencia?: string }[]
+    | null
+  /** Presente quando tipo=EXPEDIENTE — mesmos itens das intimações eletrônicas. */
+  expediente?: { id?: number }[] | null
+  processo?: { id?: number; numero_processo?: string; partes?: string; tribunal?: string } | null
+  [key: string]: unknown
+}
+
+export type ExpeditAgendaGlobalResponse = {
+  dados?: ExpeditAgendaGlobalItem[]
+  [key: string]: unknown
+}
+
 // ─── Resultado do parser de `conteudo_publicacao` ─────────────────────────────
 
 export type PublicacaoConteudoParsed = {
